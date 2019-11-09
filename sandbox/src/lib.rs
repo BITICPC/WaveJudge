@@ -1,4 +1,4 @@
-//! This module implements a sandbox for the judge. The sandbox is responsible
+//! This crate implements a sandbox for the judge. The sandbox is responsible
 //! for executing tasks in a safe and monitored environment.
 //!
 //! The sandbox implements:
@@ -12,6 +12,14 @@
 //!
 //! * Process syscall filter: filter out unexpected syscalls by seccomp feature.
 //!
+
+#[macro_use]
+extern crate error_chain;
+extern crate libc;
+extern crate nix;
+extern crate seccomp_sys;
+extern crate procinfo;
+
 
 mod daemon;
 mod seccomp;
@@ -52,11 +60,11 @@ error_chain! {
             display("cannot find file: {}", file.display())
         }
 
-        InvalidProcessArgument {
+        InvalidProcessArgument(arg: String) {
             description("invalid argv")
         }
 
-        InvalidEnvironmentVariable {
+        InvalidEnvironmentVariable(env: String) {
             description("invalid env")
         }
 
@@ -270,17 +278,23 @@ impl ProcessBuilder {
             self.args.push(arg.to_owned());
             Ok(())
         } else {
-            Err(Error::from(ErrorKind::InvalidProcessArgument))
+            bail!(ErrorKind::InvalidProcessArgument(arg.to_owned()));
         }
     }
 
     /// Add an environment variable to the child process.
     pub fn add_env(&mut self, name: &str, value: &str) -> Result<()> {
-        if !misc::is_valid_c_string(name) || !misc::is_valid_c_string(value) {
-            return Err(Error::from(ErrorKind::InvalidEnvironmentVariable));
+        if !misc::is_valid_c_string(name) {
+            bail!(ErrorKind::InvalidEnvironmentVariable(name.to_owned()));
         }
-        if name.as_bytes().contains(&b'=') || value.as_bytes().contains(&b'=') {
-            return Err(Error::from(ErrorKind::InvalidEnvironmentVariable));
+        if !misc::is_valid_c_string(value) {
+            bail!(ErrorKind::InvalidEnvironmentVariable(value.to_owned()));
+        }
+        if name.as_bytes().contains(&b'=') {
+            bail!(ErrorKind::InvalidEnvironmentVariable(name.to_owned()));
+        }
+        if value.as_bytes().contains(&b'=') {
+            bail!(ErrorKind::InvalidEnvironmentVariable(value.to_owned()));
         }
 
         self.envs.push((name.to_owned(), value.to_owned()));
@@ -569,8 +583,8 @@ impl From<procinfo::pid::Stat> for ProcessResourceUsage {
     fn from(stat: procinfo::pid::Stat) -> ProcessResourceUsage {
         ProcessResourceUsage {
             pid: stat.pid,
-            user_cpu_time: misc::duration_from_clocks(stat.utime).unwrap(),
-            kernel_cpu_time: misc::duration_from_clocks(stat.stime).unwrap(),
+            user_cpu_time: misc::duration_from_clocks(stat.utime),
+            kernel_cpu_time: misc::duration_from_clocks(stat.stime),
             virtual_mem_size: MemorySize::Bytes(stat.vsize),
             resident_set_size: MemorySize::Bytes(stat.rss)
         }

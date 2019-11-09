@@ -48,7 +48,7 @@ impl WaitPidGuard {
     /// the child process when it is dropped).
     pub fn wait(&mut self, options: Option<WaitPidFlag>)
         -> nix::Result<WaitStatus> {
-        let wait_res = nix::sys::wait::waitpid(self.nix_pid(), None);
+        let wait_res = nix::sys::wait::waitpid(self.nix_pid(), options);
         match wait_res {
             Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
                 self.kill = false;

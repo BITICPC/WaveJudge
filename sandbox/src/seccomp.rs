@@ -47,6 +47,7 @@ pub type Result<T> = std::result::Result<T, SeccompError>;
 
 /// Represent the action to take on specific syscall.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub enum Action {
     /// Allow the syscall.
     Allow,
