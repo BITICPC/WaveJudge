@@ -12,3 +12,4 @@ edition = "2018"
 "libc" = "0.2"
 "nix" = "0.15"
 "sandbox" = { path = "../sandbox" }
+"libloading" = "0.5"
