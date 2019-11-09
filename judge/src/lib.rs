@@ -356,3 +356,9 @@ impl BitAndAssign for Verdict {
         }
     }
 }
+
+/// Execute the given judge task.
+pub fn run(task: &JudgeTaskDescriptor) -> Result<JudgeResult> {
+    // TODO: Implement run(&JudgeTaskDescriptor).
+    unimplemented!()
+}

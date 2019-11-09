@@ -51,12 +51,18 @@ impl LanguageIdentifier {
     }
 }
 
+impl PartialEq for LanguageIdentifier {
+    fn eq(&self, other: &LanguageIdentifier) -> bool {
+        self.0 == other.0 && self.1 == other.1
+    }
+}
+
 /// Represent a branch of a language.
 ///
 /// A branch of a language is a 2-tuple (String, String) whose first field
 /// represents the dialect of the language and second field represents the
 /// version of the language.
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub struct LanguageBranch(String, String);
 
 impl LanguageBranch {
@@ -73,6 +79,12 @@ impl LanguageBranch {
     /// Get the version of the branch.
     pub fn version(&self) -> &str {
         &self.1
+    }
+}
+
+impl PartialEq for LanguageBranch {
+    fn eq(&self, other: &LanguageBranch) -> bool {
+        self.0 == other.0 && self.1 == other.1
     }
 }
 
@@ -105,6 +117,21 @@ impl LanguageProviderMetadata {
             branches: Vec::new(),
             interpreted
         }
+    }
+
+    /// Get the name of the language.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get all branches supported by this language provider.
+    pub fn branches(&self) -> &[LanguageBranch] {
+        &self.branches
+    }
+
+    /// Is the language interpreted?
+    pub fn interpreted(&self) -> bool {
+        self.interpreted
     }
 
     /// Add a supported branch to the `LanguageProviderMetadata` instance.
