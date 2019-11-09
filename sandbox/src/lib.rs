@@ -55,11 +55,6 @@ error_chain! {
     }
 
     errors {
-        FileNotFound(file: PathBuf) {
-            description("cannot find file")
-            display("cannot find file: {}", file.display())
-        }
-
         InvalidProcessArgument(arg: String) {
             description("invalid argv")
         }
@@ -233,6 +228,9 @@ pub struct ProcessBuilder {
     /// Environment variables passed to the child process.
     envs: Vec<(String, String)>,
 
+    /// Working directory of the child process.
+    pub working_dir: Option<PathBuf>,
+
     /// Limits to be applied to the new child process.
     pub limits: ProcessResourceLimits,
 
@@ -260,6 +258,7 @@ impl ProcessBuilder {
             file: file.to_path_buf(),
             args: Vec::new(),
             envs: Vec::new(),
+            working_dir: None,
 
             limits: ProcessResourceLimits::empty(),
             use_native_rlimit: false,
@@ -320,15 +319,13 @@ impl ProcessBuilder {
         !self.syscall_blacklist.is_empty()
     }
 
-    /// Ensure the executable file of the new child process exists. This
-    /// function returns `Err(...)` to indicate errors.
-    fn ensure_file_exists(&self) -> Result<()> {
-        if self.file.exists() {
-            Ok(())
-        } else {
-            let path = PathBuf::from(self.file.as_path());
-            bail!(ErrorKind::FileNotFound(path))
+    /// Apply working directory changes to the calling process.
+    fn apply_working_directory(&self) -> Result<()> {
+        if self.working_dir.is_some() {
+            nix::unistd::chdir(self.working_dir.as_ref().unwrap().as_path())?;
         }
+
+        Ok(())
     }
 
     /// Apply resource limits using native `rlimit` mechanism to the calling
@@ -403,8 +400,6 @@ impl ProcessBuilder {
         // TODO: `!` type stablizes.
 
         // Build argv and envs into native format.
-        // We have already checked that `file`, `argv` and `env` are valid
-        // CString(s) so we directly `unwrap` the result of `CString::new`.
         let native_file = CString::new(
                 Vec::from(self.file.as_os_str().as_bytes()))
             .unwrap();
@@ -416,14 +411,17 @@ impl ProcessBuilder {
             .map(|env| CString::new(env).unwrap())
             .collect::<Vec<CString>>();
 
-        // Apply native resource limits.
-        self.apply_native_rlimits()?;
-
         // Apply redirections.
         self.apply_redirections()?;
 
         // Set current effective user ID if necessary.
         self.apply_uid()?;
+
+        // Apply working directory changes.
+        self.apply_working_directory()?;
+
+        // Apply native resource limits.
+        self.apply_native_rlimits()?;
 
         // Apply seccomp if necessary.
         self.apply_seccomp()?;
@@ -450,8 +448,6 @@ impl ProcessBuilder {
 
     /// Start the process in a sandboxed environment.
     pub fn start(self) -> Result<Process> {
-        self.ensure_file_exists()?;
-
         match nix::unistd::fork()? {
             ForkResult::Parent { child } =>
                 Ok(self.start_parent(child.as_raw())),
