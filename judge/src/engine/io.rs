@@ -3,6 +3,8 @@
 
 use std::fs::File;
 use std::io::Read;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 use std::os::unix::io::{RawFd, FromRawFd};
 
@@ -163,5 +165,50 @@ impl<R: Read> TokenizedRead for TokenizedReader<R> {
             .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
             ?;
         Ok(Some(token))
+    }
+}
+
+/// Represent a temporary file.
+pub struct TempFile {
+    /// Path to the temporary file.
+    pub path: PathBuf,
+
+    /// The file object representing an opened handle to the temporary file.
+    pub file: File
+}
+
+impl TempFile {
+    /// Create a path template for creating temporary files. The returned path template can be
+    /// passed to `mkstemp` native function to create temporary files.
+    fn make_path_template() -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(PathBuf::from_str("judge_temp_XXXXXX").unwrap());
+
+        path
+    }
+
+    /// Create a new temporary file.
+    pub fn new() -> std::io::Result<TempFile> {
+        let path = TempFile::make_path_template();
+        TempFile::from_path_template(path)
+    }
+
+    /// Create a new temporary file with the given path template. The given path template should be
+    /// valid to be passed to the `mkstemp` native function to create temporary files; otherwise
+    /// this function panics.
+    pub fn from_path_template(template: PathBuf) -> std::io::Result<TempFile> {
+        let (fd, path) = match nix::unistd::mkstemp(&template) {
+            Ok(ret) => ret,
+            Err(e) => match e {
+                nix::Error::Sys(errno) =>
+                    return Err(std::io::Error::from_raw_os_error(errno as i32)),
+                _ => panic!("unexpected nix error in TempFile::new(): {}", e)
+            }
+        };
+
+        Ok(TempFile {
+            path,
+            file: unsafe { File::from_raw_fd(fd) }
+        })
     }
 }
