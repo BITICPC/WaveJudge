@@ -3,6 +3,7 @@
 //!
 
 use std::fs::File;
+use std::io::Read;
 
 use std::os::unix::io::{RawFd, FromRawFd};
 
@@ -75,5 +76,96 @@ impl Drop for Pipe {
             Some(file) => drop(file),
             None => ()
         }
+    }
+}
+
+/// Provide a `read_token` method on `Read` taits where tokens are separated by
+/// blank characters.
+pub trait TokenizedRead {
+    /// Read next token from the underlying device. Tokens are separated by
+    /// blank characters.
+    fn read_token(&mut self) -> std::io::Result<Option<String>>;
+}
+
+/// Provide a default implementation of `TokenizedRead`.
+pub struct TokenizedReader<R: Read> {
+    /// The inner buffered reader.
+    inner: R,
+
+    /// Internal buffer holding bytes read from the inner reader.
+    buffer: Vec<u8>,
+
+    /// The number of available bytes currently in `buffer`.
+    buffer_size: usize,
+
+    /// The read head of this reader into the buffer.
+    ptr: usize
+}
+
+impl<R: Read> TokenizedReader<R> {
+    pub const BUFFER_SIZE: usize = 4096;
+
+    /// Create a new `TokenizedReader` instance.
+    pub fn new(inner: R) -> TokenizedReader<R> {
+        TokenizedReader {
+            inner,
+            buffer: vec![0; TokenizedReader::<R>::BUFFER_SIZE],
+            buffer_size: 0,
+            ptr: 0
+        }
+    }
+
+    /// Read next block of bytes into the internal buffer.
+    fn read_block(&mut self) -> std::io::Result<()> {
+        self.buffer_size = self.inner.read(self.buffer.as_mut())?;
+        self.ptr = 0;
+        Ok(())
+    }
+
+    /// Read a single byte from the underlying reader.
+    ///
+    /// This function returns `Ok(Some(..))` if one byte is successfully read,
+    /// returns `Ok(None)` if EOF is hit, returns `Err(..)` on IO errors.
+    fn read_byte(&mut self) -> std::io::Result<Option<u8>> {
+        if self.ptr >= self.buffer_size {
+            self.read_block()?;
+            if self.ptr >= self.buffer_size {
+                return Ok(None);
+            }
+        }
+
+        let byte = self.buffer[self.ptr];
+        self.ptr += 1;
+        Ok(Some(byte))
+    }
+}
+
+impl<R: Read> TokenizedRead for TokenizedReader<R> {
+    fn read_token(&mut self) -> std::io::Result<Option<String>> {
+        static SEPERATE_BYTES: &'static [u8] = &[b' ', b'\r', b'\n', b'\t'];
+
+        // Skip any leading whitespace characters.
+        let mut byte = SEPERATE_BYTES[0];
+        while SEPERATE_BYTES.contains(&byte) {
+            byte = match self.read_byte()? {
+                Some(b) => b,
+                None => return Ok(None)
+            };
+        }
+
+        // First non-whitespace character has been hit and stored in `byte`.
+        let mut buffer = Vec::<u8>::new();
+        while !SEPERATE_BYTES.contains(&byte) {
+            buffer.push(byte);
+            byte = match self.read_byte()? {
+                Some(b) => b,
+                None => break
+            };
+        }
+
+        let token = String::from_utf8(buffer)
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
+            ?;
+        Ok(Some(token))
     }
 }

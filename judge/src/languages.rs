@@ -159,7 +159,7 @@ pub trait LanguageProvider : Sync {
 
     /// Create an `ExecutionInfo` instance containing necessary information used
     /// to execute the program.
-    fn execute(&self, program: &Program, branch: &LanguageBranch)
+    fn execute(&self, program: &Program)
         -> std::result::Result<ExecutionInfo, Box<dyn std::error::Error>>;
 }
 

@@ -514,9 +514,6 @@ impl Default for ProcessExitStatus {
 /// Resource usage statistics of a sandboxed process.
 #[derive(Clone, Copy)]
 pub struct ProcessResourceUsage {
-    /// Pid of the process.
-    pub pid: Pid,
-
     /// CPU time spent in user mode.
     pub user_cpu_time: Duration,
 
@@ -532,9 +529,8 @@ pub struct ProcessResourceUsage {
 
 impl ProcessResourceUsage {
     /// Create an empty `ProcessResourceUsage` instance.
-    pub fn empty(pid: Pid) -> ProcessResourceUsage {
+    pub fn empty() -> ProcessResourceUsage {
         ProcessResourceUsage {
-            pid,
             user_cpu_time: Duration::new(0, 0),
             kernel_cpu_time: Duration::new(0, 0),
             virtual_mem_size: MemorySize::Bytes(0),
@@ -556,10 +552,6 @@ impl ProcessResourceUsage {
     /// Update the usage statistics stored in this instance to the statistics
     /// stored in the given statistics.
     pub fn update(&mut self, other: &ProcessResourceUsage) {
-        if self.pid != other.pid {
-            panic!("Pids of the two ProcessResourceUsage values do not match.");
-        }
-
         if other.user_cpu_time > self.user_cpu_time {
             self.user_cpu_time = other.user_cpu_time;
         }
@@ -578,12 +570,17 @@ impl ProcessResourceUsage {
 impl From<procinfo::pid::Stat> for ProcessResourceUsage {
     fn from(stat: procinfo::pid::Stat) -> ProcessResourceUsage {
         ProcessResourceUsage {
-            pid: stat.pid,
             user_cpu_time: misc::duration_from_clocks(stat.utime),
             kernel_cpu_time: misc::duration_from_clocks(stat.stime),
             virtual_mem_size: MemorySize::Bytes(stat.vsize),
             resident_set_size: MemorySize::Bytes(stat.rss)
         }
+    }
+}
+
+impl Default for ProcessResourceUsage {
+    fn default() -> ProcessResourceUsage {
+        ProcessResourceUsage::empty()
     }
 }
 
@@ -623,7 +620,7 @@ impl Process {
     /// Get the resource usage statistics of the process.
     pub fn rusage(&self) -> ProcessResourceUsage {
         self.context.rusage()
-            .unwrap_or_else(|| ProcessResourceUsage::empty(self.pid))
+            .unwrap_or_else(|| ProcessResourceUsage::empty())
     }
 
     /// Wait for the child process to exit. Panics if this function has been

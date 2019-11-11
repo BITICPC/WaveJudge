@@ -183,15 +183,27 @@ impl Default for ResourceLimits {
     }
 }
 
+/// Represent built-in answer checkers used in standard judge mode.
+#[derive(Clone, Copy)]
+pub enum BuiltinCheckers {
+    /// The default built-in checker.
+    Default,
+}
+
+impl Default for BuiltinCheckers {
+    fn default() -> BuiltinCheckers {
+        BuiltinCheckers::Default
+    }
+}
+
 /// The judge mode.
 #[derive(Clone)]
 pub enum JudgeMode {
     /// Standard judge mode. The input of the judgee is redirected to the input
     /// file of each test case, and the output of the judgee is compared
-    /// against the answer file of corresponding test case token by token
-    /// literally. Semantics of tokens (e.g. floating point numbers) will not
-    /// be automatically analyzed under standard mode.
-    Standard,
+    /// against the answer file of corresponding test case by the specified
+    /// built-in answer checker.
+    Standard(BuiltinCheckers),
 
     /// Special judge mode. The input of the judgee is redirected to the input
     /// file of each test case, and the output of the judgee, together with
@@ -209,7 +221,7 @@ pub enum JudgeMode {
 
 impl Default for JudgeMode {
     fn default() -> JudgeMode {
-        JudgeMode::Standard
+        JudgeMode::Standard(BuiltinCheckers::Default)
     }
 }
 
@@ -236,6 +248,15 @@ pub struct JudgeResult {
 }
 
 impl JudgeResult {
+    /// Create an empty `JudgeResult` instance.
+    pub fn empty() -> JudgeResult {
+        JudgeResult {
+            verdict: Verdict::Accepted,
+            rusage: ProcessResourceUsage::empty(),
+            test_suite: Vec::new()
+        }
+    }
+
     /// Get judge results of every executed test cases in the test suite. The
     /// order of the `TestCaseResult` instances in the returned slice is the
     /// same as the order `TestCaseDescriptor` instances was added to the judge
@@ -246,6 +267,20 @@ impl JudgeResult {
     /// the judgee did not pass the last test case in the returned slice.
     pub fn test_suite(&self) -> &[TestCaseResult] {
         &self.test_suite
+    }
+
+    /// Add the given judge result on some test case to the overall judge
+    /// result. This function will maintain the `verdict` and `rusage` field
+    /// accordingly.
+    pub fn add_test_case_result(&mut self, result: TestCaseResult) {
+        // TODO: Implement JudgeResult::add_test_case_result(...).
+        unimplemented!()
+    }
+}
+
+impl Default for JudgeResult {
+    fn default() -> JudgeResult {
+        JudgeResult::empty()
     }
 }
 

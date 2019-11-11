@@ -4,6 +4,7 @@
 //! values.
 //!
 
+mod checkers;
 mod io;
 
 use std::io::Read;
@@ -14,12 +15,25 @@ use sandbox::{ProcessBuilder, ProcessExitStatus};
 
 use crate::{Error, ErrorKind, Result};
 use super::{
+    Program,
     CompilationTaskDescriptor,
+    CompilationScheme,
     CompilationResult,
     JudgeTaskDescriptor,
+    JudgeMode,
+    BuiltinCheckers,
+    TestCaseDescriptor,
     JudgeResult,
 };
-use super::languages::LanguageManager;
+use super::languages::{
+    LanguageIdentifier,
+    LanguageManager,
+    LanguageProvider
+};
+use checkers::{
+    Checker,
+    CheckerContext
+};
 
 
 /// A judge engine instance.
@@ -36,33 +50,44 @@ impl JudgeEngine {
         }
     }
 
+    /// Find a language provider capable of handling the given language
+    /// environment in current `JudgeEngine` instance.
+    fn find_language_provider(&self, lang: &LanguageIdentifier)
+        -> Result<Arc<Box<dyn LanguageProvider>>> {
+        self.languages.find(lang).ok_or_else(
+            || Error::from(ErrorKind::LanguageNotFound(lang.clone())))
+    }
+
+    /// Get necessary compilation information for compiling the given program
+    /// under the given scheme. This function can return `Ok(None)` to indicate
+    /// that the given program need not to be compiled before execution.
+    fn get_compile_info(&self,
+        program: &Program, scheme: CompilationScheme, output_dir: Option<&Path>)
+        -> Result<Option<CompilationInfo>> {
+        let lang_provider = self.find_language_provider(&program.language)?;
+        if lang_provider.metadata().interpreted {
+            // This language is an interpreted language and source code do not
+            // need to be compiled before execution.
+            Ok(None)
+        } else {
+            lang_provider.compile(program, output_dir, scheme)
+                .map(|info| Some(info))
+                .map_err(
+                    |e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
+        }
+    }
+
     /// Execute the given compilation task.
     pub fn compile(&self, task: &CompilationTaskDescriptor)
         -> Result<CompilationResult> {
-        // Find the corresponding language provider to handle this compilation
-        // job.
-        let lang = &task.program.language;
-        let lang_provider = self.languages.find(lang)
-            .ok_or_else(|| Error::from(
-                ErrorKind::LanguageNotFound(lang.clone())))
-            ?;
-
-        let metadata = lang_provider.metadata();
-        if metadata.interpreted {
-            // This language is an interpreted language and source code do not
-            // need to be compiled before execution.
-            return Ok(CompilationResult::succeed(&task.program.file));
-        }
-
-        // Request the language provider to create compiler related information.
         let output_dir = task.output_dir.as_ref().map(|p| p.as_path());
-        let compile_info = lang_provider.compile(
-                &task.program, output_dir, task.scheme)
-            .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
-            ?;
+        let compile_info = self.get_compile_info(
+            &task.program, task.scheme, output_dir)?;
 
-        // Execute the compiler.
-        self.execute_compiler(&compile_info)
+        match compile_info {
+            Some(info) => self.execute_compiler(&info),
+            None => Ok(CompilationResult::succeed(&task.program.file))
+        }
     }
 
     /// Execute the compiler configuration specified in the given
@@ -95,10 +120,137 @@ impl JudgeEngine {
         }
     }
 
+    /// Get necessary execution information for executing the given program.
+    fn get_execution_info(&self, program: &Program) -> Result<ExecutionInfo> {
+        let lang_provider = self.find_language_provider(&program.language)?;
+        lang_provider.execute(program)
+            .map_err(|e|
+                Error::from(ErrorKind::LanguageError(format!("{}", e))))
+    }
+
     /// Execute the given judge task.
-    pub fn judge(&self, task: JudgeTaskDescriptor)
-        -> Result<JudgeResult> {
+    pub fn judge(&self, task: &JudgeTaskDescriptor) -> Result<JudgeResult> {
+        let judgee_lang_prov =
+            self.find_language_provider(&task.program.language)?;
+
+        // Get execution information of the judgee.
+        let judgee_exec_info = judgee_lang_prov.execute(&task.program)
+            .map_err(
+                |e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
+            ?;
+        let mut context = JudgeContext::new(&task, judgee_exec_info);
+
+        // Get execution information of the checker or interactor, if any.
+        match task.mode {
+            JudgeMode::SpecialJudge(ref checker) =>
+                context.checker_exec_info =
+                    Some(self.get_execution_info(checker)?),
+            JudgeMode::Interactive(ref interactor) =>
+                context.interactor_exec_info =
+                    Some(self.get_execution_info(interactor)?),
+            _ => ()
+        };
+
+        self.judge_on_context(&mut context)?;
+        Ok(context.result)
+    }
+
+    /// Execute judge on the given judge context.
+    fn judge_on_context(&self, context: &mut JudgeContext) -> Result<()> {
+        for test_case in context.task.test_suite.iter() {
+            self.judge_on_test_case(context, test_case)?;
+            if !context.result.verdict.is_accepted() {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Execute judge on the given test case. The judge result of the test case
+    /// will be added to the given judge context.
+    fn judge_on_test_case(&self,
+        context: &mut JudgeContext, test_case: &TestCaseDescriptor)
+        -> Result<()> {
+        let mut judgee_proc_bdr =
+            context.judgee_exec_info.create_process_builder()?;
+
+        // Apply resource limits to the judgee.
+        judgee_proc_bdr.limits.cpu_time_limit =
+            Some(context.task.limits.cpu_time_limit);
+        judgee_proc_bdr.limits.real_time_limit =
+            Some(context.task.limits.real_time_limit);
+        judgee_proc_bdr.limits.memory_limit =
+            Some(context.task.limits.memory_limit);
+        judgee_proc_bdr.use_native_rlimit = false;
+
+        match context.task.mode {
+            JudgeMode::Standard(builtin_checker) =>
+                self.judge_std_on_test_case(context, builtin_checker, test_case),
+            JudgeMode::SpecialJudge(..) =>
+                self.judge_spj_on_test_case(context, test_case),
+            JudgeMode::Interactive(..) =>
+                self.judge_itr_on_test_case(context, test_case)
+        }
+    }
+
+    /// Execute judge on the given test case. The judge mode should be standard
+    /// mode.
+    fn judge_std_on_test_case(&self,
+        context: &mut JudgeContext, checker: BuiltinCheckers, test_case: &TestCaseDescriptor)
+        -> Result<()> {
+        // TODO: Implement judge_std_on_test_case.
         unimplemented!()
+    }
+
+    /// Execute judge on the given test case. The judge mode should be special
+    /// judge mode.
+    fn judge_spj_on_test_case(&self,
+        context: &mut JudgeContext, test_case: &TestCaseDescriptor)
+        -> Result<()> {
+        // TODO: Implement judge_std_on_test_case.
+        unimplemented!()
+    }
+
+    /// Execute judge on the given test case. The judge mode should be
+    /// interactive mode.
+    fn judge_itr_on_test_case(&self,
+        context: &mut JudgeContext, test_case: &TestCaseDescriptor)
+        -> Result<()> {
+        // TODO: Implement judge_std_on_test_case.
+        unimplemented!()
+    }
+}
+
+/// Provide context information about a running judge task.
+struct JudgeContext<'a> {
+    /// The judge task under execution.
+    task: &'a JudgeTaskDescriptor,
+
+    /// The execution information about the judgee.
+    judgee_exec_info: ExecutionInfo,
+
+    /// The execution information about the checker.
+    checker_exec_info: Option<ExecutionInfo>,
+
+    /// The execution information about the interactor.
+    interactor_exec_info: Option<ExecutionInfo>,
+
+    /// Result of the judge task.
+    result: JudgeResult,
+}
+
+impl<'a> JudgeContext<'a> {
+    /// Create a new `JudgeContext` instance.
+    fn new(task: &'a JudgeTaskDescriptor, judgee_exec_info: ExecutionInfo)
+        -> JudgeContext<'a> {
+        JudgeContext {
+            task,
+            judgee_exec_info,
+            checker_exec_info: None,
+            interactor_exec_info: None,
+            result: JudgeResult::empty()
+        }
     }
 }
 
