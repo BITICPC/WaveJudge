@@ -1,5 +1,4 @@
-//! This module defines IO related facilities used in the judge engine, such as
-//! pipes.
+//! This module defines IO related facilities used in the judge engine, such as pipes.
 //!
 
 use std::fs::File;
@@ -10,11 +9,11 @@ use std::os::unix::io::{RawFd, FromRawFd};
 use crate::Result;
 
 
-/// Represent a pipe with a read end and a write end. The read end and the write
-/// end of the pipe can be manipulated independently.
+/// Represent a pipe with a read end and a write end. The read end and the write end of the pipe can
+/// be manipulated independently.
 ///
-/// The first field of the tuple struct is the read end, the second field of the
-/// tuple struct is the write end.
+/// The first field of the tuple struct is the read end, the second field of the tuple struct is the
+/// write end.
 pub struct Pipe(pub Option<File>, pub Option<File>);
 
 impl Pipe {
@@ -24,8 +23,7 @@ impl Pipe {
         Ok(Pipe::from_raw_fd(read_fd, write_fd))
     }
 
-    /// Create a new `Pipe` instance whose 2 ends are constructed from raw file
-    /// descriptors.
+    /// Create a new `Pipe` instance whose 2 ends are constructed from raw file descriptors.
     pub fn from_raw_fd(read_fd: RawFd, write_fd: RawFd) -> Pipe {
         Pipe(
             Some(unsafe { File::from_raw_fd(read_fd) }),
@@ -53,14 +51,14 @@ impl Pipe {
         self.1.as_mut()
     }
 
-    /// Take ownership of the read end of the pipe, leaving `None` in the
-    /// corresponding slot in this `Pipe` instance.
+    /// Take ownership of the read end of the pipe, leaving `None` in the corresponding slot in this
+    /// `Pipe` instance.
     pub fn take_read_end(&mut self) -> Option<File> {
         self.0.take()
     }
 
-    /// Take ownership of the write end of the pipe, leaving `None` in the
-    /// corresponding slot in this `Pipe` instance.
+    /// Take ownership of the write end of the pipe, leaving `None` in the corresponding slot in
+    /// this `Pipe` instance.
     pub fn take_write_end(&mut self) -> Option<File> {
         self.1.take()
     }
@@ -79,11 +77,9 @@ impl Drop for Pipe {
     }
 }
 
-/// Provide a `read_token` method on `Read` taits where tokens are separated by
-/// blank characters.
+/// Provide a `read_token` method on `Read` taits where tokens are separated by blank characters.
 pub trait TokenizedRead {
-    /// Read next token from the underlying device. Tokens are separated by
-    /// blank characters.
+    /// Read next token from the underlying device. Tokens are separated by blank characters.
     fn read_token(&mut self) -> std::io::Result<Option<String>>;
 }
 
@@ -124,8 +120,8 @@ impl<R: Read> TokenizedReader<R> {
 
     /// Read a single byte from the underlying reader.
     ///
-    /// This function returns `Ok(Some(..))` if one byte is successfully read,
-    /// returns `Ok(None)` if EOF is hit, returns `Err(..)` on IO errors.
+    /// This function returns `Ok(Some(..))` if one byte is successfully read, returns `Ok(None)` if
+    /// EOF is hit, returns `Err(..)` on IO errors.
     fn read_byte(&mut self) -> std::io::Result<Option<u8>> {
         if self.ptr >= self.buffer_size {
             self.read_block()?;

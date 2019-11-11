@@ -98,8 +98,7 @@ pub struct CompilationResult {
 }
 
 impl CompilationResult {
-    /// Create a `CompilationResult` instance representing a successful
-    /// compilation result.
+    /// Create a `CompilationResult` instance representing a successful compilation result.
     pub fn succeed(output_file: &Path) -> CompilationResult {
         CompilationResult {
             succeeded: true,
@@ -108,8 +107,7 @@ impl CompilationResult {
         }
     }
 
-    /// Create a `CompilationResult` instance representing an unsuccessful
-    /// compilation result.
+    /// Create a `CompilationResult` instance representing an unsuccessful compilation result.
     pub fn fail(compiler_out: &str) -> CompilationResult {
         CompilationResult {
             succeeded: false,
@@ -131,8 +129,8 @@ pub struct JudgeTaskDescriptor {
     /// Resource limits.
     pub limits: ResourceLimits,
 
-    /// The test suite, consisting of multiple test cases described by a 2-tuple
-    /// (input_file, output_file).
+    /// The test suite, consisting of multiple test cases described by a 2-tuple (input_file,
+    /// output_file).
     pub test_suite: Vec<TestCaseDescriptor>,
 }
 
@@ -148,9 +146,8 @@ impl JudgeTaskDescriptor {
     }
 }
 
-/// Represent a program stored in local disk file, along with the corresponding
-/// language environment. The program file may either be a source file or an
-/// executable file.
+/// Represent a program stored in local disk file, along with the corresponding language
+/// environment. The program file may either be a source file or an executable file.
 #[derive(Clone)]
 pub struct Program {
     /// Path to the program file.
@@ -199,23 +196,21 @@ impl Default for BuiltinCheckers {
 /// The judge mode.
 #[derive(Clone)]
 pub enum JudgeMode {
-    /// Standard judge mode. The input of the judgee is redirected to the input
-    /// file of each test case, and the output of the judgee is compared
-    /// against the answer file of corresponding test case by the specified
-    /// built-in answer checker.
+    /// Standard judge mode. The input of the judgee is redirected to the input file of each test
+    /// case, and the output of the judgee is compared against the answer file of corresponding test
+    /// case by the specified built-in answer checker.
     Standard(BuiltinCheckers),
 
-    /// Special judge mode. The input of the judgee is redirected to the input
-    /// file of each test case, and the output of the judgee, together with
-    /// the input and answer of the test case, are sent to a user provided
-    /// program given in the variant field who is responsible for checking
+    /// Special judge mode. The input of the judgee is redirected to the input file of each test
+    /// case, and the output of the judgee, together with the input and answer of the test case, are
+    /// sent to a user provided program given in the variant field who is responsible for checking
     /// the correctness of the answer.
     SpecialJudge(Program),
 
-    /// Interactive mode. The input and output of the judgee is piped from / to
-    /// a user provided program called the interactor. The input and answer of
-    /// the test case is sent into the interactor, too. The interator is
-    /// responsible for checking the correctness of the behavior of the judgee.
+    /// Interactive mode. The input and output of the judgee is piped from / to a user provided
+    /// program called the interactor. The input and answer of the test case is sent into the
+    /// interactor, too. The interator is responsible for checking the correctness of the behavior
+    /// of the judgee.
     Interactive(Program)
 }
 
@@ -257,21 +252,19 @@ impl JudgeResult {
         }
     }
 
-    /// Get judge results of every executed test cases in the test suite. The
-    /// order of the `TestCaseResult` instances in the returned slice is the
-    /// same as the order `TestCaseDescriptor` instances was added to the judge
-    /// task descriptor.
+    /// Get judge results of every executed test cases in the test suite. The order of the
+    /// `TestCaseResult` instances in the returned slice is the same as the order
+    /// `TestCaseDescriptor` instances was added to the judge task descriptor.
     ///
-    /// It should be noticed that the length of the returned slice could be
-    /// smaller than the number of test cases in the test suite, in which case
-    /// the judgee did not pass the last test case in the returned slice.
+    /// It should be noticed that the length of the returned slice could be smaller than the number
+    /// of test cases in the test suite, in which case the judgee did not pass the last test case in
+    /// the returned slice.
     pub fn test_suite(&self) -> &[TestCaseResult] {
         &self.test_suite
     }
 
-    /// Add the given judge result on some test case to the overall judge
-    /// result. This function will maintain the `verdict` and `rusage` field
-    /// accordingly.
+    /// Add the given judge result on some test case to the overall judge result. This function will
+    /// maintain the `verdict` and `rusage` field accordingly.
     pub fn add_test_case_result(&mut self, result: TestCaseResult) {
         // TODO: Implement JudgeResult::add_test_case_result(...).
         unimplemented!()
@@ -354,8 +347,7 @@ impl Verdict {
         }
     }
 
-    /// If this `Verdict` is `Verdict::Accepted`, then returns `rhs`; otherwise
-    /// returns `self`.
+    /// If this `Verdict` is `Verdict::Accepted`, then returns `rhs`; otherwise returns `self`.
     pub fn and(mut self, rhs: Verdict) -> Verdict {
         self &= rhs;
         self

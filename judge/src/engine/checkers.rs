@@ -1,3 +1,6 @@
+//! This module implements built-in answer checkers used in standard judge mode.
+//!
+
 use std::fs::File;
 
 use crate::BuiltinCheckers;
@@ -85,8 +88,8 @@ impl CheckerFactory for DefaultCheckerFactory {
     }
 }
 
-/// The default checker implementation. This built-in checker implementation
-/// corresponds to the `BuiltinCheckers::Default` variant.
+/// The default checker implementation. This built-in checker implementation corresponds to the
+/// `BuiltinCheckers::Default` variant.
 pub struct DefaultChecker;
 
 impl DefaultChecker {
@@ -110,6 +113,8 @@ impl Checker for DefaultChecker {
                 return Ok(CheckerResult::rejected(
                     Some(format!("expect \"{}\", but found \"{}\"", expected_token, user_token))));
             }
+
+            token_counter += 1;
         }
 
         // Check if we can hit EOF on the user's output stream.

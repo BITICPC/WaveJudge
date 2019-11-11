@@ -14,20 +14,17 @@ use super::engine::{CompilationInfo, ExecutionInfo};
 
 /// Identifier of a programming language and its runtime environment.
 ///
-/// Language identifiers is a 3-tuple (language, dialect, version) that uniquely
-/// identifies a programming language and its runtime environment. Language
-/// providers can be filtered out by the `language` part, and `dialect` and
-/// `version` part will be sent to the language provider to determine and
-/// initialize corresponding environment when something needs to be executed.
+/// Language identifiers is a 3-tuple (language, dialect, version) that uniquely identifies a
+/// programming language and its runtime environment. Language providers can be filtered out by the
+/// `language` part, and `dialect` and `version` part will be sent to the language provider to
+/// determine and initialize corresponding environment when something needs to be executed.
 ///
-/// The last 2 fields of a language identifier, (dialect, version) is called the
-/// language's branch which can be represented using the `LanguageBranch`
-/// structure.
+/// The last 2 fields of a language identifier, (dialect, version) is called the language's branch
+/// which can be represented using the `LanguageBranch` structure.
 ///
-/// For example, suppose we have a language identifier (`cpp`, `clang`, `11`).
-/// The C++ language provider will be selected by this language identifier,
-/// and the language provider will choose to use `clang` compiler toolchains
-/// to compile source code with C++11 features available.
+/// For example, suppose we have a language identifier (`cpp`, `clang`, `11`). The C++ language
+/// provider will be selected by this language identifier, and the language provider will choose to
+/// use `clang` compiler toolchains to compile source code with C++11 features available.
 #[derive(Clone, Debug)]
 pub struct LanguageIdentifier(String, LanguageBranch);
 
@@ -66,16 +63,14 @@ impl PartialEq for LanguageIdentifier {
 
 impl Display for LanguageIdentifier {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("({}, {}, {})",
-            self.language(), self.dialect(), self.version()))
+        f.write_fmt(format_args!("({}, {}, {})", self.language(), self.dialect(), self.version()))
     }
 }
 
 /// Represent a branch of a language.
 ///
-/// A branch of a language is a 2-tuple (String, String) whose first field
-/// represents the dialect of the language and second field represents the
-/// version of the language.
+/// A branch of a language is a 2-tuple (String, String) whose first field represents the dialect of
+/// the language and second field represents the version of the language.
 #[derive(Clone, Eq, Debug)]
 pub struct LanguageBranch(String, String);
 
@@ -110,27 +105,25 @@ impl Display for LanguageBranch {
 
 /// Provide metadata about a language provider.
 pub struct LanguageProviderMetadata {
-    /// The name of the language. This field corresponds to the first field of
-    /// a `LanguageIdentifier`.
+    /// The name of the language. This field corresponds to the first field of a
+    /// `LanguageIdentifier`.
     pub name: String,
 
     /// All supported branches by this language provider.
     pub branches: Vec<LanguageBranch>,
 
-    /// Does the programs written in this language need to be compiled into some
-    /// form (binary code, bytecode, etc.) by some compiler program before it
-    /// can be executed?
+    /// Does the programs written in this language need to be compiled into some form (binary code,
+    /// bytecode, etc.) by some compiler program before it can be executed?
     pub interpreted: bool
 }
 
 impl LanguageProviderMetadata {
     /// Create a new `LanguageProviderMetadata` instance.
     ///
-    /// `name` represents the name of the language, which corresponds to the
-    /// first field of a `LanguageIdentifier` value. `interpreted` indicates
-    /// whether programs written in this language is interpreted, and does not
-    /// need to be compiled into some form (binary code, bytecode, etc.) before
-    /// they can be executed.
+    /// `name` represents the name of the language, which corresponds to the first field of a
+    /// `LanguageIdentifier` value. `interpreted` indicates whether programs written in this
+    /// language is interpreted, and does not need to be compiled into some form (binary code,
+    /// bytecode, etc.) before they can be executed.
     pub fn new(name: String, interpreted: bool) -> LanguageProviderMetadata {
         LanguageProviderMetadata {
             name,
@@ -140,38 +133,35 @@ impl LanguageProviderMetadata {
     }
 }
 
-/// This trait defines functions to be implemented by language providers who
-/// provides the ability to compile and execute a program written in some
-/// language. This trait is object safe and is commonly used in trait objects.
+/// This trait defines functions to be implemented by language providers who provides the ability to
+/// compile and execute a program written in some language. This trait is object safe and is
+/// commonly used in trait objects.
 ///
-/// Implementors of this trait should be thread safe since this trait forces
-/// the `Sync` trait.
+/// Implementors of this trait should be thread safe since this trait forces the `Sync` trait.
 pub trait LanguageProvider : Sync {
-    /// Get metadata about the language provider. The returned metadata should
-    /// be statically allocated and has the `'static` lifetime specifier.
+    /// Get metadata about the language provider. The returned metadata should be statically
+    /// allocated and has the `'static` lifetime specifier.
     fn metadata(&self) -> &'static LanguageProviderMetadata;
 
-    /// Create a `CompilationInfo` instance containing necessary information
-    /// used to compile the source code.
-    fn compile(&self,
-        program: &Program, output_dir: Option<&Path>, scheme: CompilationScheme)
+    /// Create a `CompilationInfo` instance containing necessary information used to compile the
+    /// source code.
+    fn compile(&self, program: &Program, output_dir: Option<&Path>, scheme: CompilationScheme)
         -> std::result::Result<CompilationInfo, Box<dyn std::error::Error>>;
 
-    /// Create an `ExecutionInfo` instance containing necessary information used
-    /// to execute the program.
+    /// Create an `ExecutionInfo` instance containing necessary information used to execute the
+    /// program.
     fn execute(&self, program: &Program)
         -> std::result::Result<ExecutionInfo, Box<dyn std::error::Error>>;
 }
 
-/// Provide centralized language management services. This structure and its
-/// related facilities are thread safe.
+/// Provide centralized language management services. This structure and its related facilities are
+/// thread safe.
 pub struct LanguageManager {
     providers: RwLock<HashMap<String, Vec<Arc<Box<dyn LanguageProvider>>>>>
 }
 
-/// This global static mutable variable stores an atomic reference to the
-/// singleton `LanguageManager` instance, and `LANG_MANAGER_ONCE` is the `Once`
-/// guard used to initialize it.
+/// This global static mutable variable stores an atomic reference to the singleton
+/// `LanguageManager` instance, and `LANG_MANAGER_ONCE` is the `Once` guard used to initialize it.
 static mut LANG_MANAGER: Option<Arc<LanguageManager>> = None;
 static LANG_MANAGER_ONCE: Once = Once::new();
 
@@ -183,8 +173,7 @@ impl LanguageManager {
         }
     }
 
-    /// Get the singleton instance of `LanguageManager` in the application's
-    /// global scope.
+    /// Get the singleton instance of `LanguageManager` in the application's global scope.
     pub fn singleton() -> Arc<LanguageManager> {
         LANG_MANAGER_ONCE.call_once(|| {
             unsafe {
@@ -208,11 +197,11 @@ impl LanguageManager {
         }
     }
 
-    /// Find a `LanguageProvider` instance registered in this `LanguageManager`
-    /// that is capable of handling the given language environment.
+    /// Find a `LanguageProvider` instance registered in this `LanguageManager` that is capable of
+    /// handling the given language environment.
     ///
-    /// If none of the `LanguageProviders` registered in this instance is
-    /// suitable, then returns `None`.
+    /// If none of the `LanguageProviders` registered in this instance is suitable, then returns
+    /// `None`.
     pub fn find(&self, lang: &LanguageIdentifier)
         -> Option<Arc<Box<dyn LanguageProvider>>> {
         let lock = self.providers.read().unwrap();
