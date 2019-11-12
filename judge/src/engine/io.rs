@@ -6,7 +6,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use std::os::unix::io::{RawFd, FromRawFd};
+use std::os::unix::io::{RawFd, FromRawFd, AsRawFd};
 
 use crate::Result;
 
@@ -136,6 +136,13 @@ impl<R: Read> TokenizedReader<R> {
         self.ptr += 1;
         Ok(Some(byte))
     }
+
+    /// Consume the current `TokenizedReader` instance and returns the underlying reader.
+    ///
+    /// Note that any unread data in the internal buffer of `TokenizedReader` is lost.
+    fn into_inner(self) -> R {
+        self.inner
+    }
 }
 
 impl<R: Read> TokenizedRead for TokenizedReader<R> {
@@ -168,6 +175,53 @@ impl<R: Read> TokenizedRead for TokenizedReader<R> {
     }
 }
 
+/// Check that the given `nix::Error` instance is a system error represented by
+/// `nix::Error::Sys(..)` and returns the inner error number. Otherwise this function panics.
+fn expect_nix_sys_err(err: nix::Error) -> i32 {
+    match err {
+        nix::Error::Sys(errno) => errno as i32,
+        _ => panic!("unexpected nix error: {}", err)
+    }
+}
+
+/// Provide extension functions to `Read`.
+pub trait ReadExt {
+    /// Read contents into a string, with a specified maximal length. Any non-UTF8 byte sequences
+    /// in the data will be replaced by `U+FFFD Replacement Character`, which displays like `�`.
+    fn read_to_string_lossy(&mut self, max_len: usize) -> std::io::Result<Option<String>>;
+}
+
+impl<T: Read> ReadExt for T {
+    fn read_to_string_lossy(&mut self, max_len: usize) -> std::io::Result<Option<String>> {
+        let mut buffer = vec![0u8; max_len];
+        let bytes_read = self.read(&mut buffer)?;
+
+        if bytes_read == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(String::from_utf8_lossy(&buffer[..bytes_read]).into_owned()))
+        }
+    }
+}
+
+/// Provide extension functions to `File`.
+pub trait FileExt {
+    /// Duplicate a `File` instance by duplicating its underlying file descriptor using the `dup`
+    /// system call.
+    fn duplicate(&self) -> std::io::Result<File>;
+}
+
+impl FileExt for File {
+    fn duplicate(&self) -> std::io::Result<File> {
+        let my_fd = self.as_raw_fd();
+        let dup_fd = nix::unistd::dup(my_fd)
+            .map_err(|e| std::io::Error::from_raw_os_error(expect_nix_sys_err(e)))
+            ?;
+
+        Ok(File::from_raw_fd(dup_fd))
+    }
+}
+
 /// Represent a temporary file.
 pub struct TempFile {
     /// Path to the temporary file.
@@ -197,14 +251,9 @@ impl TempFile {
     /// valid to be passed to the `mkstemp` native function to create temporary files; otherwise
     /// this function panics.
     pub fn from_path_template(template: PathBuf) -> std::io::Result<TempFile> {
-        let (fd, path) = match nix::unistd::mkstemp(&template) {
-            Ok(ret) => ret,
-            Err(e) => match e {
-                nix::Error::Sys(errno) =>
-                    return Err(std::io::Error::from_raw_os_error(errno as i32)),
-                _ => panic!("unexpected nix error in TempFile::new(): {}", e)
-            }
-        };
+        let (fd, path) = nix::unistd::mkstemp(&template)
+            .map_err(|e| std::io::Error::from_raw_os_error(expect_nix_sys_err(e)))
+            ?;
 
         Ok(TempFile {
             path,

@@ -7,7 +7,8 @@
 mod checkers;
 mod io;
 
-use std::io::Read;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -24,15 +25,20 @@ use super::{
     BuiltinCheckers,
     TestCaseDescriptor,
     JudgeResult,
+    TestCaseResult,
+    Verdict
 };
 use super::languages::{
     LanguageIdentifier,
     LanguageManager,
     LanguageProvider
 };
-use checkers::{
-    Checker,
-    CheckerContext
+use checkers::CheckerContext;
+use io::{
+    ReadExt,
+    FileExt,
+    TokenizedReader,
+    TempFile
 };
 
 
@@ -150,7 +156,8 @@ impl JudgeEngine {
     /// Execute judge on the given judge context.
     fn judge_on_context(&self, context: &mut JudgeContext) -> Result<()> {
         for test_case in context.task.test_suite.iter() {
-            self.judge_on_test_case(context, test_case)?;
+            let result = self.judge_on_test_case(context, test_case)?;
+            context.result.add_test_case_result(result);
             if !context.result.verdict.is_accepted() {
                 break;
             }
@@ -159,48 +166,113 @@ impl JudgeEngine {
         Ok(())
     }
 
-    /// Execute judge on the given test case. The judge result of the test case will be added to the
-    /// given judge context.
+    /// Execute judge on the given test case.
     fn judge_on_test_case(&self,
         context: &mut JudgeContext, test_case: &TestCaseDescriptor)
-        -> Result<()> {
+        -> Result<TestCaseResult> {
         let mut judgee_proc_bdr = context.judgee_exec_info.create_process_builder()?;
 
-        // Apply resource limits to the judgee.
+        // Add the `ONLINE_JUDGE` environment variable.
+        judgee_proc_bdr.add_env("ONLINE_JUDGE", "TRUE").unwrap();
+
+        // Set resource limits.
         judgee_proc_bdr.limits.cpu_time_limit = Some(context.task.limits.cpu_time_limit);
         judgee_proc_bdr.limits.real_time_limit = Some(context.task.limits.real_time_limit);
         judgee_proc_bdr.limits.memory_limit = Some(context.task.limits.memory_limit);
         judgee_proc_bdr.use_native_rlimit = false;
 
+        // TODO: Add code here to set effective user ID of the judgee's process.
+        // TODO: Add code here to set banned syscall list for the judgee's process.
+
+        let mut res = TestCaseResult::new();
+        self.populate_test_case_data_view(test_case, &mut res);
+
         match context.task.mode {
             JudgeMode::Standard(builtin_checker) =>
-                self.judge_std_on_test_case(context, builtin_checker, test_case),
+                self.judge_std_on_test_case(
+                    context, judgee_proc_bdr, builtin_checker, test_case, &mut res)?,
             JudgeMode::SpecialJudge(..) =>
-                self.judge_spj_on_test_case(context, test_case),
+                self.judge_spj_on_test_case(context, judgee_proc_bdr, test_case, &mut res)?,
             JudgeMode::Interactive(..) =>
-                self.judge_itr_on_test_case(context, test_case)
-        }
+                self.judge_itr_on_test_case(context, judgee_proc_bdr, test_case, &mut res)?
+        };
+
+        Ok(res)
     }
 
-    /// Execute judge on the given test case. The judge mode should be standard
-    /// mode.
+    /// Length of views into the input, output and error streams produced by the judgee.
+    const DATA_VIEW_LENGTH: usize = 200;
+
+    /// Populate the data view into the input file and answer file of the given test case into the
+    /// given `TestCaseResult` instance.
+    fn populate_test_case_data_view(&self,
+        test_case: &TestCaseDescriptor, result: &mut TestCaseResult) -> std::io::Result<()> {
+        let mut input_file = File::open(&test_case.input_file)?;
+        let mut output_file = File::open(&test_case.output_file)?;
+        result.input_view = input_file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+        result.output_view = output_file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+
+        Ok(())
+    }
+
+    /// Execute judge on the given test case. The judge mode should be standard mode.
     fn judge_std_on_test_case(&self,
-        context: &mut JudgeContext, checker: BuiltinCheckers, test_case: &TestCaseDescriptor)
-        -> Result<()> {
-        // TODO: Implement judge_std_on_test_case.
-        unimplemented!()
+        context: &mut JudgeContext, mut judgee_builder: ProcessBuilder,
+        checker: BuiltinCheckers, test_case: &TestCaseDescriptor,
+        result: &mut TestCaseResult) -> Result<()> {
+        // Apply redirections.
+        let mut input_file = File::open(&test_case.input_file)?;
+        let answer_file = File::open(&test_case.output_file)?;
+        let mut output_file = TempFile::new()?;
+        let mut error_file = TempFile::new()?;
+        judgee_builder.redirections.stdin = Some(input_file.duplicate()?);
+        judgee_builder.redirections.stdout = Some(output_file.file.duplicate()?);
+        judgee_builder.redirections.stderr = Some(error_file.file.duplicate()?);
+
+        // Execute the judgee alone.
+        let mut process = judgee_builder.start()?;
+        process.wait_for_exit()?;
+
+        result.rusage = process.rusage();
+
+        // Extract data view into the judgee's output and error contents.
+        output_file.file.seek(SeekFrom::Start(0))?;
+        error_file.file.seek(SeekFrom::Start(0))?;
+        result.output_view = output_file.file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+        result.error_view = error_file.file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+
+        // Reset file pointers and execute the specified built-in answer checker.
+        input_file.seek(SeekFrom::Start(0))?;
+        output_file.file.seek(SeekFrom::Start(0))?;
+        let checker = checkers::get_checker_factory(checker).create();
+        let mut checker_context = CheckerContext::new(
+            TokenizedReader::new(input_file),
+            TokenizedReader::new(answer_file),
+            TokenizedReader::new(error_file.file));
+        let checker_result = checker.check(&mut checker_context)?;
+
+        result.comment = checker_result.comment;
+        result.verdict = if checker_result.accepted {
+            Verdict::Accepted
+        } else {
+            Verdict::WrongAnswer
+        };
+
+        Ok(())
     }
 
     /// Execute judge on the given test case. The judge mode should be special judge mode.
-    fn judge_spj_on_test_case(&self, context: &mut JudgeContext, test_case: &TestCaseDescriptor)
-        -> Result<()> {
-        // TODO: Implement judge_std_on_test_case.
+    fn judge_spj_on_test_case(&self,
+        context: &mut JudgeContext, mut judgee_builder: ProcessBuilder,
+        test_case: &TestCaseDescriptor, result: &mut TestCaseResult) -> Result<()> {
+        // TODO: Implement judge_sstd_on_test_case.
         unimplemented!()
     }
 
     /// Execute judge on the given test case. The judge mode should be interactive mode.
-    fn judge_itr_on_test_case(&self, context: &mut JudgeContext, test_case: &TestCaseDescriptor)
-        -> Result<()> {
+    fn judge_itr_on_test_case(&self,
+        context: &mut JudgeContext, mut judgee_builder: ProcessBuilder,
+        test_case: &TestCaseDescriptor, result: &mut TestCaseResult) -> Result<()> {
         // TODO: Implement judge_std_on_test_case.
         unimplemented!()
     }

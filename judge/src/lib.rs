@@ -31,6 +31,7 @@ error_chain! {
     }
 
     foreign_links {
+        Io(::std::io::Error);
         Nix(::nix::Error);
     }
 
@@ -305,6 +306,45 @@ pub struct TestCaseResult {
 
     /// View into the output produced by the judgee, if any.
     pub output_view: Option<String>,
+
+    /// View into the error contents produced by the judgee, if any.
+    pub error_view: Option<String>,
+}
+
+impl TestCaseResult {
+    /// Create a new `TestCaseResult` instance.
+    pub fn new() -> TestCaseResult {
+        TestCaseResult {
+            verdict: Verdict::Accepted,
+            judgee_exit_status: ProcessExitStatus::NotExited,
+            checker_exit_status: None,
+            interactor_exit_status: None,
+            rusage: ProcessResourceUsage::empty(),
+            comment: None,
+            input_view: None,
+            answer_view: None,
+            output_view: None,
+            error_view: None
+        }
+    }
+
+    /// Set the judgee's exit status. This function also maintains the `verdict` field accordingly.
+    ///
+    /// This function panics if the given exit status is either `ProcessExitStatus::NotExited`
+    /// or `ProcessExitStatus::SandboxError`.
+    fn set_judgee_exit_status(&mut self, status: ProcessExitStatus) {
+        self.judgee_exit_status = status;
+        self.verdict = match status {
+            ProcessExitStatus::Normal(..) => Verdict::Accepted,
+            ProcessExitStatus::KilledBySignal(..) => Verdict::RuntimeError,
+            ProcessExitStatus::CPUTimeLimitExceeded => Verdict::TimeLimitExceeded,
+            ProcessExitStatus::RealTimeLimitExceeded => Verdict::IdlenessLimitExceeded,
+            ProcessExitStatus::MemoryLimitExceeded => Verdict::MemoryLimitExceeded,
+            ProcessExitStatus::BannedSyscall => Verdict::BannedSystemCall,
+            ProcessExitStatus::NotExited | ProcessExitStatus::SandboxError { .. } =>
+                panic!("unexpected judgee exit status."),
+        };
+    }
 }
 
 /// Verdict of the judge.
