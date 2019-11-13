@@ -276,8 +276,6 @@ fn do_main() -> Result<()> {
             println!("real time limit exceeded"),
         ProcessExitStatus::BannedSyscall =>
             println!("banned system call"),
-        ProcessExitStatus::SandboxError { err_msg } =>
-            println!("sandbox error: {}", err_msg),
         _ => unreachable!()
     };
 

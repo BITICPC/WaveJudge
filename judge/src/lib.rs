@@ -330,8 +330,7 @@ impl TestCaseResult {
 
     /// Set the judgee's exit status. This function also maintains the `verdict` field accordingly.
     ///
-    /// This function panics if the given exit status is either `ProcessExitStatus::NotExited`
-    /// or `ProcessExitStatus::SandboxError`.
+    /// This function panics if the given exit status is either `ProcessExitStatus::NotExited`.
     fn set_judgee_exit_status(&mut self, status: ProcessExitStatus) {
         self.judgee_exit_status = status;
         self.verdict = match self.judgee_exit_status {
@@ -341,8 +340,7 @@ impl TestCaseResult {
             ProcessExitStatus::RealTimeLimitExceeded => Verdict::IdlenessLimitExceeded,
             ProcessExitStatus::MemoryLimitExceeded => Verdict::MemoryLimitExceeded,
             ProcessExitStatus::BannedSyscall => Verdict::BannedSystemCall,
-            ProcessExitStatus::NotExited | ProcessExitStatus::SandboxError { .. } =>
-                panic!("unexpected judgee exit status."),
+            ProcessExitStatus::NotExited => panic!("unexpected judgee exit status."),
         };
     }
 }

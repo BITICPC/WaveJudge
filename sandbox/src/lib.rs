@@ -70,12 +70,12 @@ error_chain! {
             display("invalid system call: {}", name)
         }
 
-        DaemonJoinFailed {
-            description("failed to join the daemon thread")
-        }
-
         ChildStartupFailed {
             description("failed to launch child process")
+        }
+
+        DaemonFailed {
+            description("daemon thread failed")
         }
     }
 }
@@ -546,11 +546,7 @@ pub enum ProcessExitStatus {
 
     /// The process was killed by the daemon due to its invocation to a banned
     /// system call.
-    BannedSyscall,
-
-    /// The process was killed by the daemon due to internal errors in the
-    /// daemon.
-    SandboxError { err_msg: String }
+    BannedSyscall
 }
 
 impl Default for ProcessExitStatus {
@@ -675,7 +671,7 @@ impl Process {
     /// called already on the same `Process` instance.
     pub fn wait_for_exit(&mut self) -> Result<()> {
         self.daemon.take().unwrap().join()
-            .map_err(|_| Error::from(ErrorKind::DaemonJoinFailed))
+            .map_err(|_| Error::from(ErrorKind::DaemonFailed))
     }
 }
 

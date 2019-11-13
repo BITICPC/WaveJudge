@@ -213,9 +213,7 @@ pub fn start(context: Arc<Box<ProcessDaemonContext>>)
     std::thread::spawn(move || {
         let exit_status = match daemon_main(&**context) {
             Ok(exit_status) => exit_status,
-            Err(e) => ProcessExitStatus::SandboxError {
-                err_msg: format!("{}", e)
-            }
+            Err(e) => panic!("daemon error: {}", e)
         };
         *(*context).status.lock().unwrap() = exit_status;
     })
