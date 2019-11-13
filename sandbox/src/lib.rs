@@ -425,6 +425,10 @@ impl ProcessBuilder {
 
     /// Apply seccomp to the calling process to filter syscall sequence.
     fn apply_seccomp(&self) -> Result<()> {
+        if self.syscall_whitelist.is_empty() {
+            return Ok(());
+        }
+
         // If the child process calls syscalls that are not on the list of syscall whitelist, the
         // kernel will immediately kills the child process, as though it is been killed by the
         // delivery of a `SIGSYS` signal.
