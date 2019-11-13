@@ -38,7 +38,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::IntoRawFd;
 
 use nix::sys::signal::Signal;
-use nix::unistd::ForkResult;
+use nix::unistd::{Uid, ForkResult};
 
 use daemon::{ProcessDaemonContext, DaemonThreadJoinHandle};
 use rlimits::Resource;
@@ -209,7 +209,7 @@ impl Default for ProcessRedirection {
 }
 
 /// Type for representing a user identification.
-pub type UserId = nix::unistd::Uid;
+pub type UserId = u32;
 
 /// Type for process identifiers.
 pub type Pid = i32;
@@ -371,7 +371,7 @@ impl ProcessBuilder {
     /// Set the effective user ID stored in `self.uid` of the calling process.
     fn apply_uid(&self) -> Result<()> {
         if self.uid.is_some() {
-            nix::unistd::setuid(self.uid.unwrap())?;
+            nix::unistd::setuid(Uid::from_raw(self.uid.unwrap()))?;
         }
 
         Ok(())

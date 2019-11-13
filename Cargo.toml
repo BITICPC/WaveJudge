@@ -1,2 +1,2 @@
 [workspace]
-members = ["sandbox", "judge"]
+members = ["sandbox", "judge", "sandbox-bin"]
