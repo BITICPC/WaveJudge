@@ -334,7 +334,7 @@ impl TestCaseResult {
     /// or `ProcessExitStatus::SandboxError`.
     fn set_judgee_exit_status(&mut self, status: ProcessExitStatus) {
         self.judgee_exit_status = status;
-        self.verdict = match status {
+        self.verdict = match self.judgee_exit_status {
             ProcessExitStatus::Normal(..) => Verdict::Accepted,
             ProcessExitStatus::KilledBySignal(..) => Verdict::RuntimeError,
             ProcessExitStatus::CPUTimeLimitExceeded => Verdict::TimeLimitExceeded,

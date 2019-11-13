@@ -218,7 +218,7 @@ impl FileExt for File {
             .map_err(|e| std::io::Error::from_raw_os_error(expect_nix_sys_err(e)))
             ?;
 
-        Ok(File::from_raw_fd(dup_fd))
+        Ok(unsafe { File::from_raw_fd(dup_fd) })
     }
 }
 
