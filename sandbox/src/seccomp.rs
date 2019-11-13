@@ -11,8 +11,6 @@ use std::fmt::{Display, Formatter};
 
 use seccomp_sys::*;
 
-use super::SystemCall;
-
 
 /// The error type used in `seccomp` module.
 #[derive(Debug)]
@@ -101,12 +99,15 @@ impl SyscallFilter {
     }
 }
 
-/// Apply a list of syscall filters to the calling process. After calling this
-/// function, if the calling process calls any of the syscalls given in the
-/// list, then the corresponding action specified will be performed.
+/// Apply a list of syscall filters to the calling process. After calling this function, if the
+/// calling process calls any of the syscalls not on the given list, then the kernel will kill the
+/// calling process immediately; otherwise the corresponding action to the syscall will be
+/// performed.
 pub fn apply_syscall_filters<T>(filters: T) -> Result<()>
     where T: IntoIterator<Item = SyscallFilter>, {
-    let ctx = unsafe { seccomp_init(SCMP_ACT_ALLOW) };
+    // TODO: Change the default behavior here to `SCMP_ACT_KILL_PROCESS` after upgrading to
+    // TODO: Linux kernel 4.14 or above versions.
+    let ctx = unsafe { seccomp_init(SCMP_ACT_KILL) };
     if ctx.is_null() {
         return Err(SeccompError::new(-1));
     }

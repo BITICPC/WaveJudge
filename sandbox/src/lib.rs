@@ -297,8 +297,8 @@ pub struct ProcessBuilder {
     /// Effective user ID of the new child process.
     pub uid: Option<UserId>,
 
-    /// A list of banned syscalls for the new child process.
-    syscall_blacklist: Vec<SystemCall>,
+    /// A list of allowed syscalls for the new child process.
+    syscall_whitelist: Vec<SystemCall>,
 }
 
 impl ProcessBuilder {
@@ -316,7 +316,7 @@ impl ProcessBuilder {
             redirections: ProcessRedirection::empty(),
             uid: None,
 
-            syscall_blacklist: Vec::new()
+            syscall_whitelist: Vec::new()
         }
     }
 
@@ -360,14 +360,9 @@ impl ProcessBuilder {
         }
     }
 
-    /// Mark the given syscall as banned in the child process.
-    pub fn add_banned_syscall(&mut self, sc: SystemCall) {
-        self.syscall_blacklist.push(sc)
-    }
-
-    /// Determine whether seccomp need to be enabled to filter syscall sequence.
-    fn need_syscall_filter(&self) -> bool {
-        !self.syscall_blacklist.is_empty()
+    /// Mark the given syscall as allowed in the child process.
+    pub fn allow_syscall(&mut self, sc: SystemCall) {
+        self.syscall_whitelist.push(sc)
     }
 
     /// Apply working directory changes to the calling process.
@@ -430,14 +425,12 @@ impl ProcessBuilder {
 
     /// Apply seccomp to the calling process to filter syscall sequence.
     fn apply_seccomp(&self) -> Result<()> {
-        if self.need_syscall_filter() {
-            // If the child process calls any of the banned system call, the
-            // kernel will immediately kills the child process, as though it is
-            // been killed by the delivery of a `SIGSYS` signal.
-            seccomp::apply_syscall_filters(self.syscall_blacklist.iter()
-                .map(|syscall| seccomp::SyscallFilter::new(
-                    syscall.id, seccomp::Action::KillProcess)))?;
-        }
+        // If the child process calls syscalls that are not on the list of syscall whitelist, the
+        // kernel will immediately kills the child process, as though it is been killed by the
+        // delivery of a `SIGSYS` signal.
+        seccomp::apply_syscall_filters(self.syscall_whitelist.iter()
+            .map(|syscall| seccomp::SyscallFilter::new(
+                syscall.id, seccomp::Action::Allow)))?;
 
         Ok(())
     }

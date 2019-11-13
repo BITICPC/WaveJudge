@@ -49,7 +49,7 @@ struct ApplicationConfig {
     pub error_file: Option<PathBuf>,
 
     pub uid: Option<UserId>,
-    pub syscall_blacklist: Vec<SystemCall>
+    pub syscall_whitelist: Vec<SystemCall>
 }
 
 impl ApplicationConfig {
@@ -65,7 +65,7 @@ impl ApplicationConfig {
             output_file: None,
             error_file: None,
             uid: None,
-            syscall_blacklist: Vec::new()
+            syscall_whitelist: Vec::new()
         }
     }
 }
@@ -117,14 +117,14 @@ fn get_app_config() -> Result<ApplicationConfig> {
             .takes_value(true)
             .value_name("UID")
             .help("specify the effective uid of the sandbox process"))
-        .arg(clap::Arg::with_name("syscall_blacklist")
+        .arg(clap::Arg::with_name("syscall_whitelist")
             .short("s")
             .long("syscall")
             .takes_value(true)
-            .value_name("BANNED_SYSCALL_IDs")
+            .value_name("ALLOWED_SYSCALL_NAMEs")
             .multiple(true)
             .value_terminator("--")
-            .help("specify the IDs of banned system call"))
+            .help("specify the names of allowed system call"))
         .arg(clap::Arg::with_name("envs")
             .long("env")
             .takes_value(true)
@@ -208,10 +208,10 @@ fn get_app_config() -> Result<ApplicationConfig> {
         None => ()
     };
 
-    match matches.values_of("syscall_blacklist") {
+    match matches.values_of("syscall_whitelist") {
         Some(syscalls) => {
             for syscall in syscalls {
-                config.syscall_blacklist.push(SystemCall::from_name(syscall)?);
+                config.syscall_whitelist.push(SystemCall::from_name(syscall)?);
             }
         },
         None => ()
@@ -254,8 +254,8 @@ fn do_main() -> Result<()> {
     }
 
     builder.uid = config.uid;
-    for syscall in config.syscall_blacklist {
-        builder.add_banned_syscall(syscall);
+    for syscall in config.syscall_whitelist {
+        builder.allow_syscall(syscall);
     }
 
     let mut process = builder.start()?;
@@ -274,6 +274,8 @@ fn do_main() -> Result<()> {
             println!("memory limit exceeded"),
         ProcessExitStatus::RealTimeLimitExceeded =>
             println!("real time limit exceeded"),
+        ProcessExitStatus::BannedSyscall =>
+            println!("banned system call"),
         ProcessExitStatus::SandboxError { err_msg } =>
             println!("sandbox error: {}", err_msg),
         _ => unreachable!()
