@@ -13,7 +13,7 @@ use error_chain::ChainedError;
 use sandbox::{
     MemorySize,
     UserId,
-    SyscallId,
+    SystemCall,
     ProcessBuilder,
     ProcessExitStatus
 };
@@ -49,7 +49,7 @@ struct ApplicationConfig {
     pub error_file: Option<PathBuf>,
 
     pub uid: Option<UserId>,
-    pub syscall_blacklist: Vec<SyscallId>
+    pub syscall_blacklist: Vec<SystemCall>
 }
 
 impl ApplicationConfig {
@@ -211,10 +211,7 @@ fn get_app_config() -> Result<ApplicationConfig> {
     match matches.values_of("syscall_blacklist") {
         Some(syscalls) => {
             for syscall in syscalls {
-                let syscall_id = SyscallId::from_str(syscall)
-                    .chain_err(|| Error::from(format!("invalid syscall ID value: {}", syscall)))
-                    ?;
-                config.syscall_blacklist.push(syscall_id);
+                config.syscall_blacklist.push(SystemCall::from_name(syscall)?);
             }
         },
         None => ()
@@ -245,20 +242,20 @@ fn do_main() -> Result<()> {
     }
 
     if config.output_file.is_some() {
-        builder.redirections.stdout = Some(File::open(config.output_file.unwrap())
+        builder.redirections.stdout = Some(File::create(config.output_file.unwrap())
             .chain_err(|| Error::from("cannot open output file"))
             ?);
     }
 
     if config.error_file.is_some() {
-        builder.redirections.stderr = Some(File::open(config.error_file.unwrap())
+        builder.redirections.stderr = Some(File::create(config.error_file.unwrap())
             .chain_err(|| Error::from("cannot open error file"))
             ?);
     }
 
     builder.uid = config.uid;
-    for syscall in &config.syscall_blacklist {
-        builder.add_banned_syscall(*syscall);
+    for syscall in config.syscall_blacklist {
+        builder.add_banned_syscall(syscall);
     }
 
     let mut process = builder.start()?;

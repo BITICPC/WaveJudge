@@ -11,7 +11,7 @@ use std::fmt::{Display, Formatter};
 
 use seccomp_sys::*;
 
-use super::SyscallId;
+use super::SystemCall;
 
 
 /// The error type used in `seccomp` module.
@@ -87,7 +87,7 @@ impl Action {
 /// Represent a syscall filter.
 pub struct SyscallFilter {
     /// The syscall ID to filter.
-    pub syscall: SyscallId,
+    pub syscall: i32,
 
     /// The action to perform when the specified syscall is called.
     pub action: Action
@@ -96,7 +96,7 @@ pub struct SyscallFilter {
 impl SyscallFilter {
     /// Create a new `SyscallFilter` value filtering on the given syscall with
     /// the given filter action.
-    pub fn new(syscall: SyscallId, action: Action) -> SyscallFilter {
+    pub fn new(syscall: i32, action: Action) -> SyscallFilter {
         SyscallFilter { syscall, action }
     }
 }

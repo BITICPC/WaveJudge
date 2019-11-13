@@ -57,10 +57,17 @@ error_chain! {
     errors {
         InvalidProcessArgument(arg: String) {
             description("invalid argv")
+            display("invalid process argument: {}", arg)
         }
 
         InvalidEnvironmentVariable(env: String) {
             description("invalid env")
+            display("invalid environment variable: {}", env)
+        }
+
+        InvalidSystemCallName(name: String) {
+            description("invalid system call")
+            display("invalid system call: {}", name)
         }
 
         DaemonJoinFailed {
@@ -142,6 +149,53 @@ impl Display for MemorySize {
     }
 }
 
+/// Represent a system call.
+#[derive(Clone, Debug)]
+pub struct SystemCall {
+    /// The name of the system call.
+    pub name: String,
+
+    /// The native ID of the system call.
+    pub id: i32,
+
+    /// This field is used to prevent external code from directly creating instances of
+    /// `SystemCall`. External code is expected to create instances of `SystemCall` via `from_name`
+    /// function.
+    _msr: ()
+}
+
+impl SystemCall {
+    /// Create a new `SystemCall` instance from a system call name. Returns
+    /// `Err(ErrorKind::InvalidSystemCallName(..))` on failure.
+    pub fn from_name(name: &str) -> Result<SystemCall> {
+        let name_cstr = CString::new(name)
+            .map_err(|_| Error::from(ErrorKind::InvalidSystemCallName(name.to_owned())))
+            ?;
+        let id = unsafe { seccomp_sys::seccomp_syscall_resolve_name(name_cstr.as_ptr()) };
+        if id < 0 {
+            return Err(Error::from(ErrorKind::InvalidSystemCallName(name.to_owned())));
+        }
+
+        Ok(SystemCall {
+            name: name.to_owned(),
+            id,
+            _msr: ()
+        })
+    }
+}
+
+impl Display for SystemCall {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}({})", self.name, self.id))
+    }
+}
+
+impl PartialEq for SystemCall {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 /// Specify limits on time and memory resources.
 #[derive(Clone, Copy)]
 pub struct ProcessResourceLimits {
@@ -214,9 +268,6 @@ pub type UserId = u32;
 /// Type for process identifiers.
 pub type Pid = i32;
 
-/// The type of syscall identifiers.
-pub type SyscallId = i32;
-
 /// Provide mechanism to build a child process in sandboxed environment.
 pub struct ProcessBuilder {
     /// Path to the executable file.
@@ -247,7 +298,7 @@ pub struct ProcessBuilder {
     pub uid: Option<UserId>,
 
     /// A list of banned syscalls for the new child process.
-    syscall_blacklist: Vec<SyscallId>,
+    syscall_blacklist: Vec<SystemCall>,
 }
 
 impl ProcessBuilder {
@@ -310,8 +361,8 @@ impl ProcessBuilder {
     }
 
     /// Mark the given syscall as banned in the child process.
-    pub fn add_banned_syscall(&mut self, id: SyscallId) {
-        self.syscall_blacklist.push(id)
+    pub fn add_banned_syscall(&mut self, sc: SystemCall) {
+        self.syscall_blacklist.push(sc)
     }
 
     /// Determine whether seccomp need to be enabled to filter syscall sequence.
@@ -385,7 +436,7 @@ impl ProcessBuilder {
             // been killed by the delivery of a `SIGSYS` signal.
             seccomp::apply_syscall_filters(self.syscall_blacklist.iter()
                 .map(|syscall| seccomp::SyscallFilter::new(
-                    *syscall, seccomp::Action::KillProcess)))?;
+                    syscall.id, seccomp::Action::KillProcess)))?;
         }
 
         Ok(())
