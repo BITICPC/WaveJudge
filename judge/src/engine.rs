@@ -22,7 +22,6 @@ use super::{
     CompilationResult,
     JudgeTaskDescriptor,
     JudgeMode,
-    BuiltinCheckers,
     TestCaseDescriptor,
     JudgeResult,
     TestCaseResult,
@@ -200,18 +199,18 @@ impl JudgeEngine {
 
     /// Execute judge on the current test case. The judge mode should be standard mode.
     fn judge_std_on_test_case(&self, context: &mut JudgeContext) -> Result<()> {
-        let (mut input_file, mut output_file, mut error_file) =
-            match self.execute_judgee_on_test_case(context)? {
-                Some(io) => io,
-                None => return Ok(())
-            };
+        self.execute_judgee_on_test_case(context)?;
+        if !context.test_case_result.as_ref().unwrap().verdict.is_accepted() {
+            return Ok(());
+        }
 
         // Reset file pointers and execute the specified built-in answer checker.
-        let test_case = context.test_case.unwrap();
-        let answer_file = File::open(&test_case.output_file)?;
+        let mut input_file = context.input_file.take().unwrap();
+        let answer_file = File::open(&context.test_case.as_ref().unwrap().output_file)?;
+        let mut judgee_output_file = context.judgee_output_file.take().unwrap();
+        context.judgee_error_file.take();   // Close error file explicitly.
         input_file.seek(SeekFrom::Start(0))?;
-        output_file.file.seek(SeekFrom::Start(0))?;
-        error_file.file.seek(SeekFrom::Start(0))?;
+        judgee_output_file.file.seek(SeekFrom::Start(0))?;
 
         let checker = match context.task.mode {
             JudgeMode::Standard(ck) => ck,
@@ -222,7 +221,7 @@ impl JudgeEngine {
         let mut checker_context = CheckerContext::new(
             TokenizedReader::new(input_file),
             TokenizedReader::new(answer_file),
-            TokenizedReader::new(error_file.file));
+            TokenizedReader::new(judgee_output_file.file));
         let checker_result = checker.check(&mut checker_context)?;
 
         let test_case_result = context.test_case_result.as_mut().unwrap();
@@ -238,11 +237,7 @@ impl JudgeEngine {
 
     /// Execute judge on the given test case. The judge mode should be special judge mode.
     fn judge_spj_on_test_case(&self, context: &mut JudgeContext) -> Result<()> {
-        let (mut input_file, mut output_file, _) =
-            match self.execute_judgee_on_test_case(context)? {
-                Some(io) => io,
-                None => return Ok(())
-            };
+        self.execute_judgee_on_test_case(context)?;
 
         // TODO: Implement judge_spj_on_test_case.
         unimplemented!()
@@ -252,20 +247,28 @@ impl JudgeEngine {
     /// given `ProcessBuilder` instance. The current test case's judge result value is maintained
     /// accordingly.
     ///
+    /// The input file of the test case, output file of the judgee and error file of the judgee is
+    /// opened and stored in the context after calling this function. Views into the output file
+    /// and error file of the judgee is extracted as well.
+    ///
     /// If the judgee program exit successfully and produces meaningful answers, this function
     /// returns `Ok(Some(..))`; otherwise this function returns `Ok(None)` if no error occur.
     fn execute_judgee_on_test_case(&self, context: &mut JudgeContext)
-        -> Result<Option<(File, TempFile, TempFile)>> {
+        -> Result<()> {
         // Apply redirections.
         let test_case = context.test_case.unwrap();
-        let input_file = File::open(&test_case.input_file)?;
-        let mut output_file = TempFile::new()?;
-        let mut error_file = TempFile::new()?;
+        context.input_file = Some(File::open(&test_case.input_file)?);
+        context.judgee_output_file = Some(TempFile::new()?);
+        context.judgee_error_file = Some(TempFile::new()?);
+
+        let input_file = context.input_file.as_mut().unwrap();
+        let judgee_output_file = context.judgee_output_file.as_mut().unwrap();
+        let judgee_error_file = context.judgee_error_file.as_mut().unwrap();
 
         let mut judgee_builder = context.judgee_exec_info.create_process_builder()?;
         judgee_builder.redirections.stdin = Some(input_file.duplicate()?);
-        judgee_builder.redirections.stdout = Some(output_file.file.duplicate()?);
-        judgee_builder.redirections.stderr = Some(error_file.file.duplicate()?);
+        judgee_builder.redirections.stdout = Some(judgee_output_file.file.duplicate()?);
+        judgee_builder.redirections.stderr = Some(judgee_error_file.file.duplicate()?);
 
         // Execute the judgee alone.
         let mut process = judgee_builder.start()?;
@@ -276,16 +279,14 @@ impl JudgeEngine {
         result.rusage = process.rusage();
 
         // Extract data view into the judgee's output and error contents.
-        output_file.file.seek(SeekFrom::Start(0))?;
-        error_file.file.seek(SeekFrom::Start(0))?;
-        result.output_view = output_file.file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
-        result.error_view = error_file.file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+        judgee_output_file.file.seek(SeekFrom::Start(0))?;
+        judgee_error_file.file.seek(SeekFrom::Start(0))?;
+        result.output_view = judgee_output_file.file.read_to_string_lossy(
+            JudgeEngine::DATA_VIEW_LENGTH)?;
+        result.error_view = judgee_error_file.file.read_to_string_lossy(
+            JudgeEngine::DATA_VIEW_LENGTH)?;
 
-        if result.verdict.is_accepted() {
-            Ok(Some((input_file, output_file, error_file)))
-        } else {
-            Ok(None)
-        }
+        Ok(())
     }
 
     /// Execute user provided answer checker program.
