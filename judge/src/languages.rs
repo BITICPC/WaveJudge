@@ -150,8 +150,20 @@ pub trait LanguageProvider : Sync {
 
     /// Create an `ExecutionInfo` instance containing necessary information used to execute the
     /// program.
-    fn execute(&self, program: &Program)
+    fn execute(&self, program: &Program, scheme: ExecutionScheme)
         -> std::result::Result<ExecutionInfo, Box<dyn std::error::Error>>;
+}
+
+/// Represent scheme of an execution.
+pub enum ExecutionScheme {
+    /// The program to be executed is a judgee.
+    Judgee,
+
+    /// The program to be executed is a checker.
+    Checker,
+
+    /// The program to be executed is an interactor.
+    Interactor
 }
 
 /// Provide centralized language management services. This structure and its related facilities are

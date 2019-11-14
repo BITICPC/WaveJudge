@@ -38,7 +38,8 @@ use super::{
 use super::languages::{
     LanguageIdentifier,
     LanguageManager,
-    LanguageProvider
+    LanguageProvider,
+    ExecutionScheme
 };
 use checkers::{Checker, CheckerContext};
 use io::{
@@ -186,9 +187,10 @@ impl JudgeEngine {
     }
 
     /// Get necessary execution information for executing the given program.
-    fn get_execution_info(&self, program: &Program) -> Result<ExecutionInfo> {
+    fn get_execution_info(&self, program: &Program, scheme: ExecutionScheme)
+        -> Result<ExecutionInfo> {
         let lang_provider = self.find_language_provider(&program.language)?;
-        lang_provider.execute(program)
+        lang_provider.execute(program, scheme)
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
     }
 
@@ -202,7 +204,7 @@ impl JudgeEngine {
         let judgee_lang_prov = self.find_language_provider(&task.program.language)?;
 
         // Get execution information of the judgee.
-        let judgee_exec_info = judgee_lang_prov.execute(&task.program)
+        let judgee_exec_info = judgee_lang_prov.execute(&task.program, ExecutionScheme::Judgee)
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
             ?;
         let mut context = JudgeContext::new(&task, judgee_exec_info);
@@ -212,9 +214,11 @@ impl JudgeEngine {
             JudgeMode::Standard(checker) =>
                 context.builtin_checker = Some(self.get_builtin_checker(checker)),
             JudgeMode::SpecialJudge(ref checker) =>
-                context.checker_exec_info = Some(self.get_execution_info(checker)?),
+                context.checker_exec_info = Some(
+                    self.get_execution_info(checker, ExecutionScheme::Checker)?),
             JudgeMode::Interactive(ref interactor) =>
-                context.interactor_exec_info = Some(self.get_execution_info(interactor)?)
+                context.interactor_exec_info = Some(
+                    self.get_execution_info(interactor, ExecutionScheme::Interactor)?)
         };
 
         self.judge_on_context(&mut context)?;
