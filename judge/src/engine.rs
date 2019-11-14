@@ -22,6 +22,7 @@ use super::{
     CompilationResult,
     JudgeTaskDescriptor,
     JudgeMode,
+    BuiltinCheckers,
     TestCaseDescriptor,
     JudgeResult,
     TestCaseResult,
@@ -32,7 +33,7 @@ use super::languages::{
     LanguageManager,
     LanguageProvider
 };
-use checkers::CheckerContext;
+use checkers::{Checker, CheckerContext};
 use io::{
     ReadExt,
     FileExt,
@@ -129,6 +130,11 @@ impl JudgeEngine {
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
     }
 
+    /// Get a `Checker` trait object corresponding to the given builtin checker indicator.
+    fn get_builtin_checker(&self, checker: BuiltinCheckers) -> Box<dyn Checker> {
+        checkers::get_checker_factory(checker).create()
+    }
+
     /// Execute the given judge task.
     pub fn judge(&self, task: &JudgeTaskDescriptor) -> Result<JudgeResult> {
         let judgee_lang_prov = self.find_language_provider(&task.program.language)?;
@@ -141,11 +147,12 @@ impl JudgeEngine {
 
         // Get execution information of the checker or interactor, if any.
         match task.mode {
+            JudgeMode::Standard(checker) =>
+                context.builtin_checker = Some(self.get_builtin_checker(checker)),
             JudgeMode::SpecialJudge(ref checker) =>
                 context.checker_exec_info = Some(self.get_execution_info(checker)?),
             JudgeMode::Interactive(ref interactor) =>
-                context.interactor_exec_info = Some(self.get_execution_info(interactor)?),
-            _ => ()
+                context.interactor_exec_info = Some(self.get_execution_info(interactor)?)
         };
 
         self.judge_on_context(&mut context)?;
@@ -182,14 +189,14 @@ impl JudgeEngine {
         judgee_proc_bdr.use_native_rlimit = false;
 
         // TODO: Add code here to set effective user ID of the judgee's process.
-        // TODO: Add code here to set banned syscall list for the judgee's process.
+        // TODO: Add code here to set syscall whitelist for the judgee's process.
 
         let test_case = context.test_case.unwrap();
-        self.populate_test_case_data_view(test_case, context.test_case_result.as_mut().unwrap());
+        self.populate_test_case_data_view(test_case, context.test_case_result.as_mut().unwrap())?;
 
         // Dispatch to different judge engine logic according to different judge modes.
         match context.task.mode {
-            JudgeMode::Standard(builtin_checker) => self.judge_std_on_test_case(context)?,
+            JudgeMode::Standard(..) => self.judge_std_on_test_case(context)?,
             JudgeMode::SpecialJudge(..) => self.judge_spj_on_test_case(context)?,
             JudgeMode::Interactive(..) => self.judge_itr_on_test_case(context)?
         };
@@ -212,12 +219,7 @@ impl JudgeEngine {
         input_file.seek(SeekFrom::Start(0))?;
         judgee_output_file.file.seek(SeekFrom::Start(0))?;
 
-        let checker = match context.task.mode {
-            JudgeMode::Standard(ck) => ck,
-            _ => unreachable!()
-        };
-
-        let checker = checkers::get_checker_factory(checker).create();
+        let checker = context.builtin_checker.as_ref().unwrap();
         let mut checker_context = CheckerContext::new(
             TokenizedReader::new(input_file),
             TokenizedReader::new(answer_file),
@@ -238,9 +240,11 @@ impl JudgeEngine {
     /// Execute judge on the given test case. The judge mode should be special judge mode.
     fn judge_spj_on_test_case(&self, context: &mut JudgeContext) -> Result<()> {
         self.execute_judgee_on_test_case(context)?;
+        if !context.test_case_result.as_ref().unwrap().verdict.is_accepted() {
+            return Ok(());
+        }
 
-        // TODO: Implement judge_spj_on_test_case.
-        unimplemented!()
+        self.execute_checker(context)
     }
 
     /// Execute the judgee program on the current test case. The judgee program is built using the
@@ -290,9 +294,71 @@ impl JudgeEngine {
     }
 
     /// Execute user provided answer checker program.
-    fn execute_checker(&self, context: &JudgeContext) -> Result<()> {
-        // TODO: Implement execute_checker.
-        unimplemented!()
+    fn execute_checker(&self, context: &mut JudgeContext) -> Result<()> {
+        let mut checker_bdr = context.checker_exec_info.as_ref().unwrap().create_process_builder()?;
+
+        // Apply `ONLINE_JUDGE` environment variable to the checker process.
+        checker_bdr.add_env("ONLINE_JUDGE", "TRUE").unwrap();
+
+        // Apply redirections to the checker.
+        let mut checker_output = TempFile::new()?;
+        checker_bdr.redirections.stdout = Some(checker_output.file.duplicate()?);
+
+        // Pass input file, answer file and judgee's output file to the custom checker via command
+        // line arguments.
+        let test_case = context.test_case.unwrap();
+        checker_bdr.add_arg(test_case.input_file.to_str().unwrap())?;
+        checker_bdr.add_arg(test_case.output_file.to_str().unwrap())?;
+        checker_bdr.add_arg(context.judgee_output_file.as_ref().unwrap().path.to_str().unwrap())?;
+
+        // TODO: Add code here to set the effective user ID of the checker process.
+        // TODO: Add code here to set syscall whitelist for the checker process.
+
+        // Execute the checker.
+        let mut checker_proc = checker_bdr.start()?;
+        checker_proc.wait_for_exit()?;
+
+        // Read contents of the output stream of the checker process.
+        checker_output.file.seek(SeekFrom::Start(0))?;
+        let mut checker_output_msg = String::new();
+        checker_output.file.read_to_string(&mut checker_output_msg)?;
+
+        let result = context.test_case_result.as_mut().unwrap();
+        match checker_proc.exit_status() {
+            ProcessExitStatus::Normal(0) => {
+                // Accepted.
+                result.verdict = Verdict::Accepted;
+                result.comment = Some(checker_output_msg);
+            },
+            ProcessExitStatus::Normal(..) => {
+                // Rejected.
+                result.verdict = Verdict::WrongAnswer;
+                result.comment = Some(checker_output_msg);
+            },
+            ProcessExitStatus::KilledBySignal(sig) => {
+                result.verdict = Verdict::CheckerFailed;
+                result.comment = Some(format!("checker killed by signal: {}", sig))
+            },
+            ProcessExitStatus::CPUTimeLimitExceeded => {
+                result.verdict = Verdict::CheckerFailed;
+                result.comment = Some(String::from("checker CPU time limit exceeded"));
+            },
+            ProcessExitStatus::MemoryLimitExceeded => {
+                result.verdict = Verdict::CheckerFailed;
+                result.comment = Some(String::from("checker memory limit exceeded"));
+            },
+            ProcessExitStatus::RealTimeLimitExceeded => {
+                result.verdict = Verdict::CheckerFailed;
+                result.comment = Some(String::from("checker real time limit exceeded"));
+            },
+            ProcessExitStatus::BannedSyscall => {
+                result.verdict = Verdict::CheckerFailed;
+                result.comment = Some(String::from("checker invokes banned system call"));
+            },
+            _ => unreachable!()
+        }
+
+        Ok(())
     }
 
     /// Execute judge on the current test case. The judge mode should be interactive mode.
@@ -324,6 +390,9 @@ struct JudgeContext<'a> {
 
     /// The execution information about the judgee.
     judgee_exec_info: ExecutionInfo,
+
+    /// The built-in checker to be used.
+    builtin_checker: Option<Box<dyn Checker>>,
 
     /// The execution information about the checker.
     checker_exec_info: Option<ExecutionInfo>,
@@ -360,6 +429,7 @@ impl<'a> JudgeContext<'a> {
         JudgeContext {
             task,
             judgee_exec_info,
+            builtin_checker: None,
             checker_exec_info: None,
             interactor_exec_info: None,
             test_case: None,
