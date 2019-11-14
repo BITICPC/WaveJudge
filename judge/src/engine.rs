@@ -11,8 +11,15 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
-use sandbox::{ProcessBuilder, ProcessExitStatus};
+use sandbox::{
+    MemorySize,
+    UserId,
+    SystemCall,
+    ProcessBuilder,
+    ProcessExitStatus
+};
 
 use crate::{Error, ErrorKind, Result};
 use super::{
@@ -42,17 +49,72 @@ use io::{
 };
 
 
+/// Configuration for a judge engine instance.
+pub struct JudgeEngineConfig {
+    /// The effective user ID of the judgee, answer checker and interactor.
+    pub judge_uid: Option<UserId>,
+
+    /// System call whitelist for the judgee process.
+    pub judgee_syscall_whitelist: Vec<SystemCall>,
+
+    /// CPU time limit of answer checkers.
+    pub checker_cpu_time_limit: Option<Duration>,
+
+    /// Real time limit of checkers.
+    pub checker_real_time_limit: Option<Duration>,
+
+    /// Memory limit of answer checkers.
+    pub checker_memory_limit: Option<MemorySize>,
+
+    /// System call whitelist of answer checkers.
+    pub checker_syscall_whitelist: Vec<SystemCall>,
+
+    /// CPU time limit of interactors.
+    pub interactor_cpu_time_limit: Option<Duration>,
+
+    /// Real time limit of interactors.
+    pub interactor_real_time_limit: Option<Duration>,
+
+    /// Memory limit of interactors.
+    pub interactor_memory_limit: Option<MemorySize>,
+
+    /// System call whitelist of interactors.
+    pub interactor_syscall_whitelist: Vec<SystemCall>,
+}
+
+impl JudgeEngineConfig {
+    /// Create a new `JudgeEngineConfig` instance.
+    pub fn new() -> JudgeEngineConfig {
+        JudgeEngineConfig {
+            judge_uid: None,
+            judgee_syscall_whitelist: Vec::new(),
+            checker_cpu_time_limit: None,
+            checker_real_time_limit: None,
+            checker_memory_limit: None,
+            checker_syscall_whitelist: Vec::new(),
+            interactor_cpu_time_limit: None,
+            interactor_real_time_limit: None,
+            interactor_memory_limit: None,
+            interactor_syscall_whitelist: Vec::new()
+        }
+    }
+}
+
 /// A judge engine instance.
 pub struct JudgeEngine {
     /// Atomic shared reference to the singleton `LanguageManager` instance.
     languages: Arc<LanguageManager>,
+
+    /// Configuration of the judge engine.
+    pub config: JudgeEngineConfig,
 }
 
 impl JudgeEngine {
     /// Create a new judge engine that performs the given judge task.
     pub fn new() -> JudgeEngine {
         JudgeEngine {
-            languages: super::languages::LanguageManager::singleton()
+            languages: super::languages::LanguageManager::singleton(),
+            config: JudgeEngineConfig::new()
         }
     }
 
@@ -188,8 +250,10 @@ impl JudgeEngine {
         judgee_proc_bdr.limits.memory_limit = Some(context.task.limits.memory_limit);
         judgee_proc_bdr.use_native_rlimit = false;
 
-        // TODO: Add code here to set effective user ID of the judgee's process.
-        // TODO: Add code here to set syscall whitelist for the judgee's process.
+        judgee_proc_bdr.uid = self.config.judge_uid;
+        for syscall in &self.config.judgee_syscall_whitelist {
+            judgee_proc_bdr.allow_syscall(syscall.clone());
+        }
 
         let test_case = context.test_case.unwrap();
         self.populate_test_case_data_view(test_case, context.test_case_result.as_mut().unwrap())?;
@@ -300,6 +364,12 @@ impl JudgeEngine {
         // Apply `ONLINE_JUDGE` environment variable to the checker process.
         checker_bdr.add_env("ONLINE_JUDGE", "TRUE").unwrap();
 
+        // Apply resource constraits to the checker process.
+        checker_bdr.limits.cpu_time_limit = self.config.checker_cpu_time_limit;
+        checker_bdr.limits.real_time_limit = self.config.checker_real_time_limit;
+        checker_bdr.limits.memory_limit = self.config.checker_memory_limit;
+        checker_bdr.use_native_rlimit = false;
+
         // Apply redirections to the checker.
         let mut checker_output = TempFile::new()?;
         checker_bdr.redirections.stdout = Some(checker_output.file.duplicate()?);
@@ -311,8 +381,10 @@ impl JudgeEngine {
         checker_bdr.add_arg(test_case.output_file.to_str().unwrap())?;
         checker_bdr.add_arg(context.judgee_output_file.as_ref().unwrap().path.to_str().unwrap())?;
 
-        // TODO: Add code here to set the effective user ID of the checker process.
-        // TODO: Add code here to set syscall whitelist for the checker process.
+        checker_bdr.uid = self.config.judge_uid;
+        for syscall in &self.config.checker_syscall_whitelist {
+            checker_bdr.allow_syscall(syscall.clone());
+        }
 
         // Execute the checker.
         let mut checker_proc = checker_bdr.start()?;
