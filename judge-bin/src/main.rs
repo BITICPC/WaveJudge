@@ -208,7 +208,8 @@ fn do_main() -> Result<()> {
             for so in sos {
                 let so_path = PathBuf::from_str(so).unwrap();
                 judge::languages::loader::load_dylib(&so_path)
-                    .chain_err(|| Error::from(format!("failed to load dylib: \"{}\"", so)))
+                    .map_err(|e| Error::from(format!("failed to load dylib: \"{}\": {}",
+                        so, e.to_string())))
                     ?;
             }
         },
