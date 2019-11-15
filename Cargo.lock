@@ -43,6 +43,13 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "builtin_languages"
+version = "0.1.0"
+dependencies = [
+ "judge 0.1.0",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

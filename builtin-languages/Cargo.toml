@@ -1,0 +1,11 @@
+[package]
+name = "builtin_languages"
+version = "0.1.0"
+author = ["Lancern <msrlancern@126.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+"judge" = { path = "../judge" }
