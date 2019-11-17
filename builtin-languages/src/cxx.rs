@@ -120,13 +120,7 @@ impl CXXLanguageProvider {
                 program.language.language(), program.language.dialect())
         };
 
-        let mut output_file = match output_dir {
-            Some(output_dir) => PathBuf::from(output_dir),
-            None => program.file.parent()
-                .map(|p| PathBuf::from(p))
-                .unwrap_or_else(|| PathBuf::from("."))
-        };
-        output_file.push(program.file.file_stem().expect("no file_stem on the given program"));
+        let output_file = crate::utils::make_output_file_path(&program.file, output_dir);
 
         let mut ci = CompilationInfo::new(&compiler, &output_file);
         ci.compiler.args.push(String::from("-O2"));

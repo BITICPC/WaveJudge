@@ -13,6 +13,10 @@
 extern crate judge;
 
 mod cxx;
+mod java;
+mod py;
+mod rust;
+mod utils;
 
 use std::fmt::{Display, Formatter};
 
@@ -50,9 +54,10 @@ impl std::error::Error for InitLanguageError { }
 /// This function is called by the judge loader to initialize and load available language providers
 /// in this library.
 pub extern "Rust" fn init_language_providers() -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Implement init_language_providers.
-
     cxx::init_cxx_providers().map_err(|e| e.into_boxed())?;
+    java::init_java_providers().map_err(|e| e.into_boxed())?;
+    py::init_py_providers().map_err(|e| e.into_boxed())?;
+    rust::init_rust_providers().map_err(|e| e.into_boxed())?;
 
-    unimplemented!()
+    Ok(())
 }
