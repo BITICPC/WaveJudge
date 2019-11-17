@@ -13,3 +13,6 @@ edition = "2018"
 "nix" = "0.15"
 "sandbox" = { path = "../sandbox" }
 "libloading" = "0.5"
+
+# The following dependency is used in the `judge-bin` binary.
+"clap" = "2.33"

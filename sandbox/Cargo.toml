@@ -12,3 +12,6 @@ edition = "2018"
 "nix" = "0.15"
 "seccomp-sys" = "0.1"
 "procinfo" = "0.4"
+
+# The following dependency is used in `sandbox-bin` binary.
+"clap" = "2.33"
