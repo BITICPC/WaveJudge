@@ -92,7 +92,7 @@ impl LanguageProvider for RustLanguageProvider {
         };
 
         ci.compiler.args.push(String::from("-o"));
-        ci.compiler.args.push(String::from(program.file.to_str().unwrap()));
+        ci.compiler.args.push(format!("\"{}\"", program.file.display()));
 
         Ok(ci)
     }

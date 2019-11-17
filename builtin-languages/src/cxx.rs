@@ -130,17 +130,15 @@ impl CXXLanguageProvider {
         match scheme {
             // Add waveteslib directory to include and library directories.
             CompilationScheme::Checker | CompilationScheme::Interactor => {
-                ci.compiler.args.push(format!("-I\"{}\"",
-                    self.env.testlib_include_dir.to_str().unwrap()));
-                ci.compiler.args.push(format!("-L\"{}\"",
-                    self.env.testlib_lib_dir.to_str().unwrap()));
+                ci.compiler.args.push(format!("-I\"{}\"", self.env.testlib_include_dir.display()));
+                ci.compiler.args.push(format!("-L\"{}\"", self.env.testlib_lib_dir.display()));
             },
             _ => ()
         };
 
         ci.compiler.args.push(String::from("-o"));
-        ci.compiler.args.push(String::from(output_file.to_str().unwrap()));
-        ci.compiler.args.push(String::from(program.file.to_str().unwrap()));
+        ci.compiler.args.push(format!("\"{}\"", output_file.display()));
+        ci.compiler.args.push(format!("\"{}\"", program.file.display()));
 
         match scheme {
             // Push wavetestlib library to linker.
