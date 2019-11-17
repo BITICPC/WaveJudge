@@ -1,3 +1,6 @@
+//! This module defines the language provider for the Rust programming language.
+//!
+
 use crate::InitLanguageError;
 
 use std::path::{Path, PathBuf};

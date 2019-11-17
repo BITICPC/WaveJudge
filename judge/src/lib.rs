@@ -267,8 +267,9 @@ impl JudgeResult {
     /// Add the given judge result on some test case to the overall judge result. This function will
     /// maintain the `verdict` and `rusage` field accordingly.
     pub fn add_test_case_result(&mut self, result: TestCaseResult) {
-        // TODO: Implement JudgeResult::add_test_case_result(...).
-        unimplemented!()
+        self.verdict &= result.verdict;
+        self.rusage.update(&result.rusage);
+        self.test_suite.push(result);
     }
 }
 

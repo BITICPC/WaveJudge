@@ -1,3 +1,6 @@
+//! This module provides some utility functions to the crate.
+//!
+
 use std::path::{Path, PathBuf};
 
 

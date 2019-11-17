@@ -1,3 +1,6 @@
+//! This module defines the language provider for the Python programming language.
+//!
+
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Once;

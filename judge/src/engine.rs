@@ -439,7 +439,7 @@ impl JudgeEngine {
 
     /// Execute judge on the current test case. The judge mode should be interactive mode.
     fn judge_itr_on_test_case(&self, context: &mut JudgeContext) -> Result<()> {
-        // TODO: Implement judge_std_on_test_case.
+        // TODO: Implement judge_itr_on_test_case.
         unimplemented!()
     }
 
