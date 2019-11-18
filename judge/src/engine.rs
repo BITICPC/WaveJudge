@@ -195,8 +195,8 @@ impl JudgeEngine {
     }
 
     /// Get a `Checker` trait object corresponding to the given builtin checker indicator.
-    fn get_builtin_checker(&self, checker: BuiltinCheckers) -> Box<dyn Checker> {
-        checkers::get_checker_factory(checker).create()
+    fn get_builtin_checker(&self, checker: BuiltinCheckers) -> Checker {
+        checkers::get_checker(checker)
     }
 
     /// Execute the given judge task.
@@ -292,7 +292,7 @@ impl JudgeEngine {
             TokenizedReader::new(input_file),
             TokenizedReader::new(answer_file),
             TokenizedReader::new(judgee_output_file.file));
-        let checker_result = checker.check(&mut checker_context)?;
+        let checker_result = checker(&mut checker_context)?;
 
         let test_case_result = context.test_case_result.as_mut().unwrap();
         test_case_result.comment = checker_result.comment;
@@ -468,7 +468,7 @@ struct JudgeContext<'a> {
     judgee_exec_info: ExecutionInfo,
 
     /// The built-in checker to be used.
-    builtin_checker: Option<Box<dyn Checker>>,
+    builtin_checker: Option<Checker>,
 
     /// The execution information about the checker.
     checker_exec_info: Option<ExecutionInfo>,

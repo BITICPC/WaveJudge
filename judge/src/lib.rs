@@ -186,6 +186,12 @@ impl Default for ResourceLimits {
 pub enum BuiltinCheckers {
     /// The default built-in checker.
     Default,
+
+    /// The floating point aware built-in checker.
+    FloatingPointAware,
+
+    /// The case insensitive built-in checker.
+    CaseInsensitive
 }
 
 impl Default for BuiltinCheckers {
