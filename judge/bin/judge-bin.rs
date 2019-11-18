@@ -221,6 +221,8 @@ fn do_main() -> Result<()> {
         ("judge", Some(judge_matches)) => do_judge(judge_matches),
         _ => unreachable!()
     }
+
+    unimplemented!()
 }
 
 fn main() -> Result<()> {
