@@ -4,12 +4,12 @@ use std::time::{Duration, SystemTime};
 
 use nix::sys::signal::Signal;
 use nix::sys::wait::{WaitStatus, WaitPidFlag};
+use nix::unistd::Pid;
 
 use super::{
     Error,
     ErrorKind,
     Result,
-    Pid,
     ProcessResourceLimits,
     ProcessResourceUsage,
     ProcessExitStatus,
@@ -31,24 +31,18 @@ struct WaitPidGuard {
 
 impl WaitPidGuard {
     /// Create a new `WaitPidGuard` instance.
-    pub fn new(pid: Pid) -> WaitPidGuard {
+    pub fn new(pid: Pid) -> Self {
         WaitPidGuard {
             pid,
             kill: true
         }
     }
 
-    /// Get `nix` representation of the child process' pid.
-    fn nix_pid(&self) -> nix::unistd::Pid {
-        nix::unistd::Pid::from_raw(self.pid)
-    }
-
     /// Wait for the child process. If a status indicating the child process
     /// has exited, then the guard will be released (it will not try to kill
     /// the child process when it is dropped).
-    pub fn wait(&mut self, options: Option<WaitPidFlag>)
-        -> nix::Result<WaitStatus> {
-        let wait_res = nix::sys::wait::waitpid(self.nix_pid(), options);
+    pub fn wait(&mut self, options: Option<WaitPidFlag>) -> nix::Result<WaitStatus> {
+        let wait_res = nix::sys::wait::waitpid(self.pid, options);
         match wait_res {
             Ok(WaitStatus::Exited(..)) | Ok(WaitStatus::Signaled(..)) => {
                 self.kill = false;
@@ -63,7 +57,7 @@ impl WaitPidGuard {
 impl Drop for WaitPidGuard {
     fn drop(&mut self) {
         if self.kill {
-            nix::sys::signal::kill(self.nix_pid(), Signal::SIGKILL)
+            nix::sys::signal::kill(self.pid, Signal::SIGKILL)
                 .expect("cannot kill the child process in the WaitPidGuard.");
         }
     }
@@ -89,8 +83,7 @@ pub struct ProcessDaemonContext {
 
 impl ProcessDaemonContext {
     /// Create a new `ProcessDaemonContext` instance.
-    pub fn new(pid: Pid, limits: Option<ProcessResourceLimits>)
-        -> ProcessDaemonContext {
+    pub fn new(pid: Pid, limits: Option<ProcessResourceLimits>) -> ProcessDaemonContext {
         ProcessDaemonContext {
             pid,
             limits,
@@ -111,13 +104,10 @@ impl ProcessDaemonContext {
 }
 
 /// Checks that child process does not exceed daemon implemented limits.
-fn daemon_check_limits(
-    limits: &ProcessResourceLimits,
-    usage: &ProcessResourceUsage,
+fn daemon_check_limits(limits: &ProcessResourceLimits, usage: &ProcessResourceUsage,
     real_time_elapsed: Duration) -> Option<ProcessExitStatus> {
     let cpu_time_limit = limits.cpu_time_limit;
-    if cpu_time_limit.is_some() &&
-        usage.cpu_time() > cpu_time_limit.unwrap() {
+    if cpu_time_limit.is_some() && usage.cpu_time() > cpu_time_limit.unwrap() {
         return Some(ProcessExitStatus::CPUTimeLimitExceeded);
     }
 
@@ -129,16 +119,15 @@ fn daemon_check_limits(
     }
 
     let memory_limit = limits.memory_limit;
-    if memory_limit.is_some() &&
-        usage.virtual_mem_size > memory_limit.unwrap() {
+    if memory_limit.is_some() && usage.virtual_mem_size > memory_limit.unwrap() {
         return Some(ProcessExitStatus::MemoryLimitExceeded);
     }
 
     None
 }
 
-/// Get resource usage statistics for the given process and update the (maybe)
-/// existing one. Returns the newest resource usage statistics.
+/// Get resource usage statistics for the given process and update the (maybe) existing one. Returns
+/// the newest resource usage statistics.
 fn daemon_update_rusage(pid: Pid, old: &mut Option<ProcessResourceUsage>)
     -> Result<ProcessResourceUsage> {
     let current_rusage = ProcessResourceUsage::usage_of(pid)?;
@@ -152,18 +141,16 @@ fn daemon_update_rusage(pid: Pid, old: &mut Option<ProcessResourceUsage>)
 
 /// Main entry point of the daemon thread.
 ///
-/// This function should not return `Ok(ProcessExitStatus::SandboxError)`.
-/// Instead, it should return `Err(e)` with `e` set to the corresponding
-/// error.
+/// This function should not return `Ok(ProcessExitStatus::SandboxError)`. Instead, it should return
+/// `Err(e)` with `e` set to the corresponding error.
 fn daemon_main(context: &ProcessDaemonContext) -> Result<ProcessExitStatus> {
     // Interval between consecutive `wait` calls in the daemon thread.
     const WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
     let mut wait_guard = WaitPidGuard::new(context.pid);
 
-    // If we have daemon implemented resource constraits, then we should call
-    // `wait` with `WNOHANG` flag; otherwise we should call `wait` without
-    // any flags.
+    // If we have daemon implemented resource constraits, then we should call `wait` with `WNOHANG`
+    // flag; otherwise we should call `wait` without any flags.
     let wait_flag = context.limits.as_ref().and(Some(WaitPidFlag::WNOHANG));
     let has_daemon_limits = context.limits.is_some();
 
@@ -198,18 +185,16 @@ fn daemon_main(context: &ProcessDaemonContext) -> Result<ProcessExitStatus> {
                 _ => ()
             };
 
-            // Sleep for `WAIT_INTERVAL` milliseconds until the next `wait`
-            // call.
+            // Sleep for `WAIT_INTERVAL` milliseconds until the next `wait` call.
             std::thread::sleep(WAIT_INTERVAL);
         }
     }
 }
 
-/// Start the daemon thread. The daemon thread will monitor the process
-/// with the pid stored in the given context. This function returns a
-/// `JoinHandle` instance representing a handle to the daemon thread.
-pub fn start(context: Arc<Box<ProcessDaemonContext>>)
-    -> DaemonThreadJoinHandle {
+/// Start the daemon thread. The daemon thread will monitor the process with the pid stored in the
+/// given context. This function returns a `JoinHandle` instance representing a handle to the daemon
+/// thread.
+pub fn start(context: Arc<Box<ProcessDaemonContext>>) -> DaemonThreadJoinHandle {
     std::thread::spawn(move || {
         let exit_status = match daemon_main(&**context) {
             Ok(exit_status) => exit_status,

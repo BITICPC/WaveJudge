@@ -20,7 +20,7 @@ pub struct SeccompError {
 
 impl SeccompError {
     /// Create a new `SeccompError` instance.
-    pub fn new(errno: i32) -> SeccompError {
+    pub fn new(errno: i32) -> Self {
         SeccompError { errno }
     }
 
@@ -53,8 +53,8 @@ pub enum Action {
     /// Kill the calling thread immediately.
     KillThread,
 
-    /// Kill the calling process immediately, as though it is killed by the
-    /// delivery of a `SIGSYS` signal.
+    /// Kill the calling process immediately, as though it is killed by the delivery of a `SIGSYS`
+    /// signal.
     KillProcess,
 
     /// Send a `SIGSYS` signal to the calling thread.
@@ -68,8 +68,7 @@ pub enum Action {
 }
 
 impl Action {
-    /// Convert the `Action` enum value into native, libseccomp compatible
-    /// format.
+    /// Convert the `Action` enum value into native, libseccomp compatible format.
     pub fn as_native(&self) -> u32 {
         match self {
             Action::Allow => SCMP_ACT_ALLOW,
@@ -92,9 +91,9 @@ pub struct SyscallFilter {
 }
 
 impl SyscallFilter {
-    /// Create a new `SyscallFilter` value filtering on the given syscall with
-    /// the given filter action.
-    pub fn new(syscall: i32, action: Action) -> SyscallFilter {
+    /// Create a new `SyscallFilter` value filtering on the given syscall with the given filter
+    /// action.
+    pub fn new(syscall: i32, action: Action) -> Self {
         SyscallFilter { syscall, action }
     }
 }
@@ -115,8 +114,7 @@ pub fn apply_syscall_filters<T>(filters: T) -> Result<()>
     for filter in filters {
         let ret = unsafe {
             seccomp_rule_add_array(
-                ctx, filter.action.as_native(), filter.syscall,
-                0, std::ptr::null())
+                ctx, filter.action.as_native(), filter.syscall, 0, std::ptr::null())
         };
         if ret < 0 {
             return Err(SeccompError::new(ret));

@@ -2,8 +2,8 @@ use std::time::Duration;
 
 /// Check if the given string slice is a valid C-style string.
 ///
-/// Formally, this function checks whether the byte sequence of the string slice
-/// contains any b'\x00'. If so, this function returns `false`.
+/// Formally, this function checks whether the byte sequence of the string slice contains any
+/// b'\x00'. If so, this function returns `false`.
 ///
 /// ```
 /// assert!(is_valid_c_string("abc哈哈哈"));
@@ -16,10 +16,9 @@ pub fn is_valid_c_string(s: &str) -> bool {
 
 /// Get number of clocks in one second.
 fn clocks_per_sec() -> i64 {
-    // The following constant corresponds to the `CLOCKS_PER_SEC` macro used in
-    // C. Posix standard requires this constant set to one million on every
-    // platform, regardless of the actual clock speed. We use this constant
-    // as a fallback when `sysconf` fails.
+    // The `CLOCKS_PER_SEC` constant corresponds to the macro with the same name used in C. Posix
+    // standard requires this constant set to one million on every platform, regardless of the
+    // actual clock speed. We use this constant as a fallback when `sysconf` fails.
     const CLOCKS_PER_SEC: i64 = 1000000;
 
     let ret = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };

@@ -30,7 +30,7 @@ use std::cmp::Ordering;
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,7 +38,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::IntoRawFd;
 
 use nix::sys::signal::Signal;
-use nix::unistd::{Uid, ForkResult};
+use nix::unistd::{Uid, Pid, ForkResult};
 
 use daemon::{ProcessDaemonContext, DaemonThreadJoinHandle};
 use rlimits::Resource;
@@ -55,19 +55,16 @@ error_chain! {
     }
 
     errors {
-        InvalidProcessArgument(arg: String) {
-            description("invalid argv")
-            display("invalid process argument: {}", arg)
+        InvalidProcessArgument {
+            description("invalid argument to subprocess")
         }
 
-        InvalidEnvironmentVariable(env: String) {
-            description("invalid env")
-            display("invalid environment variable: {}", env)
+        InvalidEnvironmentVariable {
+            description("invalid environment variable to subprocess")
         }
 
-        InvalidSystemCallName(name: String) {
-            description("invalid system call")
-            display("invalid system call: {}", name)
+        InvalidSystemCallName {
+            description("invalid system call name")
         }
 
         ChildStartupFailed {
@@ -149,6 +146,9 @@ impl Display for MemorySize {
     }
 }
 
+/// Type for representing system call IDs.
+pub type SystemCallId = i32;
+
 /// Represent a system call.
 #[derive(Clone, Debug)]
 pub struct SystemCall {
@@ -156,30 +156,31 @@ pub struct SystemCall {
     pub name: String,
 
     /// The native ID of the system call.
-    pub id: i32,
+    pub id: SystemCallId,
 
     /// This field is used to prevent external code from directly creating instances of
     /// `SystemCall`. External code is expected to create instances of `SystemCall` via `from_name`
     /// function.
-    _msr: ()
+    _msrnb: ()
 }
 
 impl SystemCall {
     /// Create a new `SystemCall` instance from a system call name. Returns
     /// `Err(ErrorKind::InvalidSystemCallName(..))` on failure.
-    pub fn from_name(name: &str) -> Result<SystemCall> {
-        let name_cstr = CString::new(name)
-            .map_err(|_| Error::from(ErrorKind::InvalidSystemCallName(name.to_owned())))
-            ?;
+    pub fn from_name<T>(name: T) -> Result<Self>
+        where T: Into<String> {
+        let name = name.into();
+        let name_cstr = CString::new(name.clone())
+            .map_err(|_| Error::from(ErrorKind::InvalidSystemCallName))?;
         let id = unsafe { seccomp_sys::seccomp_syscall_resolve_name(name_cstr.as_ptr()) };
         if id < 0 {
-            return Err(Error::from(ErrorKind::InvalidSystemCallName(name.to_owned())));
+            return Err(Error::from(ErrorKind::InvalidSystemCallName));
         }
 
         Ok(SystemCall {
-            name: name.to_owned(),
+            name,
             id,
-            _msr: ()
+            _msrnb: ()
         })
     }
 }
@@ -199,23 +200,19 @@ impl PartialEq for SystemCall {
 /// Specify limits on time and memory resources.
 #[derive(Clone, Copy)]
 pub struct ProcessResourceLimits {
-    /// Limit on CPU time available for the child process. `None` if no
-    /// constraits are set.
+    /// Limit on CPU time available for the child process. `None` if no constraits are set.
     pub cpu_time_limit: Option<Duration>,
 
-    /// Limit on real time available for the child process. `None` if no
-    /// constraits are set.
+    /// Limit on real time available for the child process. `None` if no constraits are set.
     pub real_time_limit: Option<Duration>,
 
-    /// Limit on memory available for the child process. `None` if no constraits
-    /// are set.
+    /// Limit on memory available for the child process. `None` if no constraits are set.
     pub memory_limit: Option<MemorySize>
 }
 
 impl ProcessResourceLimits {
-    /// Create a new `ProcessResourceLimits` instance that contains no
-    /// constraits.
-    fn empty() -> ProcessResourceLimits {
+    /// Create a new `ProcessResourceLimits` instance that contains no constraits.
+    fn empty() -> Self {
         ProcessResourceLimits {
             cpu_time_limit: None,
             real_time_limit: None,
@@ -225,7 +222,7 @@ impl ProcessResourceLimits {
 }
 
 impl Default for ProcessResourceLimits {
-    fn default() -> ProcessResourceLimits {
+    fn default() -> Self {
         ProcessResourceLimits::empty()
     }
 }
@@ -245,9 +242,9 @@ pub struct ProcessRedirection {
 }
 
 impl ProcessRedirection {
-    /// Create a new `ProcessRedirection` instance representing that neither
-    /// `stdin`, `stdout` nor `stderr` need to be redirected.
-    fn empty() -> ProcessRedirection {
+    /// Create a new `ProcessRedirection` instance representing that neither `stdin`, `stdout` nor
+    /// `stderr` need to be redirected.
+    fn empty() -> Self {
         ProcessRedirection {
             stdin: None,
             stdout: None,
@@ -257,16 +254,13 @@ impl ProcessRedirection {
 }
 
 impl Default for ProcessRedirection {
-    fn default() -> ProcessRedirection {
+    fn default() -> Self {
         ProcessRedirection::empty()
     }
 }
 
 /// Type for representing a user identification.
 pub type UserId = u32;
-
-/// Type for process identifiers.
-pub type Pid = i32;
 
 /// Provide mechanism to build a child process in sandboxed environment.
 pub struct ProcessBuilder {
@@ -285,10 +279,10 @@ pub struct ProcessBuilder {
     /// Limits to be applied to the new child process.
     pub limits: ProcessResourceLimits,
 
-    /// Whether to use native rlimit mechanism to limit the resource usage of
-    /// the child process. If you choose to use native rlimit mechanism, then
-    /// the sandbox cannot report `TimeLimitExceeded` and `MemoryLimitExceeded`
-    /// error, and the real time limit will not be applied.
+    /// Whether to use native rlimit mechanism to limit the resource usage of the child process. If
+    /// you choose to use native rlimit mechanism, then the sandbox cannot report
+    /// `TimeLimitExceeded` and `MemoryLimitExceeded` error, and the real time limit will not be
+    /// applied.
     pub use_native_rlimit: bool,
 
     /// Redirections to be applied to the new child process.
@@ -302,11 +296,11 @@ pub struct ProcessBuilder {
 }
 
 impl ProcessBuilder {
-    /// Create a new `ProcessBuilder` instance, given the executable file's
-    /// path.
-    pub fn new(file: &Path) -> ProcessBuilder {
+    /// Create a new `ProcessBuilder` instance, given the executable file's path.
+    pub fn new<T>(file: T) -> ProcessBuilder
+        where T: Into<PathBuf> {
         ProcessBuilder {
-            file: file.to_path_buf(),
+            file: file.into(),
             args: Vec::new(),
             envs: Vec::new(),
             working_dir: None,
@@ -320,42 +314,47 @@ impl ProcessBuilder {
         }
     }
 
-    /// Add an argument to the child process. If the given argument is not a
-    /// valid C-style string, then returns `Err(e)` where the error kind of `e`
-    /// is `ErrorKind::InvalidProcessArgument`.
-    pub fn add_arg(&mut self, arg: &str) -> Result<()> {
-        if misc::is_valid_c_string(arg) {
-            self.args.push(arg.to_owned());
+    /// Add an argument to the child process. If the given argument is not a valid C-style string,
+    /// then returns `Err(e)` where the error kind of `e` is `ErrorKind::InvalidProcessArgument`.
+    pub fn add_arg<T>(&mut self, arg: T) -> Result<()>
+        where T: Into<String> {
+        let arg = arg.into();
+        if misc::is_valid_c_string(&arg) {
+            self.args.push(arg);
             Ok(())
         } else {
-            bail!(ErrorKind::InvalidProcessArgument(arg.to_owned()));
+            bail!(ErrorKind::InvalidProcessArgument);
         }
     }
 
     /// Add an environment variable to the child process.
-    pub fn add_env(&mut self, name: &str, value: &str) -> Result<()> {
-        if !misc::is_valid_c_string(name) {
-            bail!(ErrorKind::InvalidEnvironmentVariable(name.to_owned()));
+    pub fn add_env<T1, T2>(&mut self, name: T1, value: T2) -> Result<()>
+        where T1: Into<String>, T2: Into<String> {
+        let name = name.into();
+        let value = value.into();
+
+        if !misc::is_valid_c_string(&name) {
+            bail!(ErrorKind::InvalidEnvironmentVariable);
         }
-        if !misc::is_valid_c_string(value) {
-            bail!(ErrorKind::InvalidEnvironmentVariable(value.to_owned()));
+        if !misc::is_valid_c_string(&value) {
+            bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if name.as_bytes().contains(&b'=') {
-            bail!(ErrorKind::InvalidEnvironmentVariable(name.to_owned()));
+            bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if value.as_bytes().contains(&b'=') {
-            bail!(ErrorKind::InvalidEnvironmentVariable(value.to_owned()));
+            bail!(ErrorKind::InvalidEnvironmentVariable);
         }
 
-        self.envs.push((name.to_owned(), value.to_owned()));
+        self.envs.push((name, value));
         Ok(())
     }
 
-    /// Add all environment variables in the calling process to the environment
-    /// variables of the child process.
+    /// Add all environment variables in the calling process to the environment variables of the
+    /// child process.
     pub fn inherit_env(&mut self) {
         for (name, value) in std::env::vars() {
-            self.add_env(&name, &value)
+            self.add_env(name, value)
                 .expect("invalid environment variable in current process.");
         }
     }
@@ -374,8 +373,7 @@ impl ProcessBuilder {
         Ok(())
     }
 
-    /// Apply resource limits using native `rlimit` mechanism to the calling
-    /// process.
+    /// Apply resource limits using native `rlimit` mechanism to the calling process.
     fn apply_native_rlimits(&self) -> Result<()> {
         if self.use_native_rlimit {
             if self.limits.cpu_time_limit.is_some() {
@@ -392,8 +390,7 @@ impl ProcessBuilder {
         Ok(())
     }
 
-    /// Apply redirections specified in `self.redirections` to the calling
-    /// process.
+    /// Apply redirections specified in `self.redirections` to the calling process.
     fn apply_redirections(&mut self) -> Result<()> {
         if self.redirections.stdin.is_some() {
             nix::unistd::dup2(
@@ -433,23 +430,19 @@ impl ProcessBuilder {
         // kernel will immediately kills the child process, as though it is been killed by the
         // delivery of a `SIGSYS` signal.
         seccomp::apply_syscall_filters(self.syscall_whitelist.iter()
-            .map(|syscall| seccomp::SyscallFilter::new(
-                syscall.id, seccomp::Action::Allow)))?;
+            .map(|syscall| seccomp::SyscallFilter::new(syscall.id, seccomp::Action::Allow)))?;
 
         Ok(())
     }
 
-    /// Start child process. This function will be called after `fork` in the
-    /// child process. This function initializes necessary components in the
-    /// child process (e.g. redirections, `setuid`, seccomp, etc.) and then
-    /// calls `execve`.
+    /// Start child process. This function will be called after `fork` in the child process. This
+    /// function initializes necessary components in the child process (e.g. redirections, `setuid`,
+    /// seccomp, etc.) and then calls `execve`.
     fn start_child(mut self) -> Result<()> {
-        // TODO: Change the return type of this function to Result<!> after the
-        // TODO: `!` type stablizes.
+        // TODO: Change the return type of this function to Result<!> after the `!` type stablizes.
 
         // Build argv and envs into native format.
-        let native_file = CString::new(
-                Vec::from(self.file.as_os_str().as_bytes()))
+        let native_file = CString::new(Vec::from(self.file.as_os_str().as_bytes()))
             .unwrap();
         let native_argv = self.args.iter()
             .map(|arg| CString::new(arg.clone()).unwrap())
@@ -475,15 +468,13 @@ impl ProcessBuilder {
         self.apply_seccomp()?;
 
         // Finally, execve!
-        nix::unistd::execve(
-            &native_file, native_argv.as_ref(), native_envs.as_ref())?;
+        nix::unistd::execve(&native_file, native_argv.as_ref(), native_envs.as_ref())?;
 
         unreachable!()
     }
 
-    /// Initializes any necessary components in the parent process to monitor
-    /// the states of the child process. This function should be called after
-    /// `fork` in the parent process.
+    /// Initializes any necessary components in the parent process to monitor the states of the
+    /// child process. This function should be called after `fork` in the parent process.
     fn start_parent(self, child_pid: Pid) -> Process {
         let daemon_limits = if self.use_native_rlimit {
             None
@@ -497,21 +488,18 @@ impl ProcessBuilder {
     /// Start the process in a sandboxed environment.
     pub fn start(self) -> Result<Process> {
         match nix::unistd::fork()? {
-            ForkResult::Parent { child } =>
-                Ok(self.start_parent(child.as_raw())),
+            ForkResult::Parent { child } => Ok(self.start_parent(child)),
             ForkResult::Child => {
                 match self.start_child() {
                     Ok(..) => unreachable!(),
                     Err(e) => {
                         eprintln!("failed to start child process: {}", e);
-                        // Send a `SIGUSR1` signal to self to terminate self
-                        // and notify the daemon thread.
-                        nix::sys::signal::kill(
-                                nix::unistd::getpid(), Signal::SIGUSR1)
+                        // Send a `SIGUSR1` signal to self to terminate self and notify the daemon
+                        // thread.
+                        nix::sys::signal::kill(nix::unistd::getpid(), Signal::SIGUSR1)
                             .expect("cannot kill self.");
-                        // Sit in a tight loop, wait to be killed by the
-                        // delivery of the `SIGUSR1` signal whose default
-                        // handling behavior is killing the target process.
+                        // Sit in a tight loop, wait to be killed by the delivery of the `SIGUSR1`
+                        // signal whose default handling behavior is killing the target process.
                         loop { }
                     }
                 }
@@ -550,7 +538,7 @@ pub enum ProcessExitStatus {
 }
 
 impl Default for ProcessExitStatus {
-    fn default() -> ProcessExitStatus {
+    fn default() -> Self {
         ProcessExitStatus::NotExited
     }
 }
@@ -573,7 +561,7 @@ pub struct ProcessResourceUsage {
 
 impl ProcessResourceUsage {
     /// Create an empty `ProcessResourceUsage` instance.
-    pub fn empty() -> ProcessResourceUsage {
+    pub fn new() -> Self {
         ProcessResourceUsage {
             user_cpu_time: Duration::new(0, 0),
             kernel_cpu_time: Duration::new(0, 0),
@@ -583,8 +571,8 @@ impl ProcessResourceUsage {
     }
 
     /// Get resource usage for the specified process.
-    pub fn usage_of(pid: Pid) -> std::io::Result<ProcessResourceUsage> {
-        Ok(ProcessResourceUsage::from(procinfo::pid::stat(pid)?))
+    pub fn usage_of(pid: Pid) -> std::io::Result<Self> {
+        Ok(ProcessResourceUsage::from(procinfo::pid::stat(pid.as_raw())?))
     }
 
     /// Get the total CPU time consumed, a.k.a. the sum of the user CPU time and
@@ -595,7 +583,7 @@ impl ProcessResourceUsage {
 
     /// Update the usage statistics stored in this instance to the statistics
     /// stored in the given statistics.
-    pub fn update(&mut self, other: &ProcessResourceUsage) {
+    pub fn update(&mut self, other: &Self) {
         if other.user_cpu_time > self.user_cpu_time {
             self.user_cpu_time = other.user_cpu_time;
         }
@@ -612,7 +600,7 @@ impl ProcessResourceUsage {
 }
 
 impl From<procinfo::pid::Stat> for ProcessResourceUsage {
-    fn from(stat: procinfo::pid::Stat) -> ProcessResourceUsage {
+    fn from(stat: procinfo::pid::Stat) -> Self {
         ProcessResourceUsage {
             user_cpu_time: misc::duration_from_clocks(stat.utime),
             kernel_cpu_time: misc::duration_from_clocks(stat.stime),
@@ -623,10 +611,13 @@ impl From<procinfo::pid::Stat> for ProcessResourceUsage {
 }
 
 impl Default for ProcessResourceUsage {
-    fn default() -> ProcessResourceUsage {
-        ProcessResourceUsage::empty()
+    fn default() -> Self {
+        ProcessResourceUsage::new()
     }
 }
+
+/// Type for representing process IDs.
+pub type ProcessId = i32;
 
 /// A handle to the sandboxed child process.
 pub struct Process {
@@ -656,6 +647,11 @@ impl Process {
         handle
     }
 
+    /// Get the ID of the child process.
+    pub fn pid(&self) -> ProcessId {
+        self.pid.as_raw()
+    }
+
     /// Get the exit status of the process.
     pub fn exit_status(&self) -> ProcessExitStatus {
         self.context.exit_status()
@@ -664,7 +660,7 @@ impl Process {
     /// Get the resource usage statistics of the process.
     pub fn rusage(&self) -> ProcessResourceUsage {
         self.context.rusage()
-            .unwrap_or_else(|| ProcessResourceUsage::empty())
+            .unwrap_or_else(|| ProcessResourceUsage::new())
     }
 
     /// Wait for the child process to exit. Panics if this function has been

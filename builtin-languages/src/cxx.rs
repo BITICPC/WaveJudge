@@ -2,7 +2,7 @@
 //!
 
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Once;
 
@@ -31,7 +31,7 @@ static METADATA_ONCE: Once = Once::new();
 
 fn init_metadata() {
     METADATA_ONCE.call_once(|| {
-        let mut c_metadata = LanguageProviderMetadata::new(String::from("c"), false);
+        let mut c_metadata = LanguageProviderMetadata::new("c", false);
         c_metadata.branches.push(LanguageBranch::new("clang", "c89"));
         c_metadata.branches.push(LanguageBranch::new("clang", "c95"));
         c_metadata.branches.push(LanguageBranch::new("clang", "c99"));
@@ -46,7 +46,7 @@ fn init_metadata() {
             C_METADATA = Some(c_metadata);
         }
 
-        let mut cpp_metadata = LanguageProviderMetadata::new(String::from("cpp"), false);
+        let mut cpp_metadata = LanguageProviderMetadata::new("cpp", false);
         cpp_metadata.branches.push(LanguageBranch::new("clang", "c++98"));
         cpp_metadata.branches.push(LanguageBranch::new("clang", "c++03"));
         cpp_metadata.branches.push(LanguageBranch::new("clang", "c++11"));
@@ -111,7 +111,7 @@ impl CXXLanguageProvider {
         CXXLanguageProvider { env }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<&Path>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         let compiler = match (program.language.language(), program.language.dialect()) {
             ("c", "gnu") => PathBuf::from("gcc"),
@@ -122,7 +122,7 @@ impl CXXLanguageProvider {
 
         let output_file = crate::utils::make_output_file_path(&program.file, output_dir);
 
-        let mut ci = CompilationInfo::new(&compiler, &output_file);
+        let mut ci = CompilationInfo::new(compiler, output_file.clone());
         ci.compiler.args.push(String::from("-O2"));
         ci.compiler.args.push(format!("-std={}", program.language.version()));
         ci.compiler.args.push(String::from("-DONLINE_JUDGE"));
@@ -177,7 +177,7 @@ impl LanguageProvider for CLanguageProvider {
         unsafe { C_METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<&Path>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         self.cxx_prov.compile(program, output_dir, scheme)
     }
@@ -208,7 +208,7 @@ impl LanguageProvider for CPPLanguageProvider {
         unsafe { CPP_METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<&Path>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         self.cxx_prov.compile(program, output_dir, scheme)
     }

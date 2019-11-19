@@ -1,7 +1,7 @@
 //! This module provide Rust friendly bindings to the native `rlimit` mechanism.
 //!
 
-use libc::{rlimit};
+use libc::rlimit;
 
 /// Represent a resource.
 #[repr(u32)]
@@ -34,10 +34,8 @@ impl ResourceLimit {
     }
 }
 
-/// Set resource limit for the calling process, using the native `rlimit`
-/// mechanism.
-pub fn setrlimit(resource: Resource, limit: &ResourceLimit)
-    -> std::io::Result<()> {
+/// Set resource limit for the calling process, using the native `rlimit` mechanism.
+pub fn setrlimit(resource: Resource, limit: &ResourceLimit) -> std::io::Result<()> {
     let ret = unsafe { libc::setrlimit(resource as u32, &limit.as_native()) };
     if ret == 0 {
         Ok(())

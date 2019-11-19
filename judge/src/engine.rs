@@ -9,7 +9,7 @@ mod io;
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -85,7 +85,7 @@ pub struct JudgeEngineConfig {
 
 impl JudgeEngineConfig {
     /// Create a new `JudgeEngineConfig` instance.
-    pub fn new() -> JudgeEngineConfig {
+    pub fn new() -> Self {
         JudgeEngineConfig {
             judge_uid: None,
             judgee_syscall_whitelist: Vec::new(),
@@ -112,7 +112,7 @@ pub struct JudgeEngine {
 
 impl JudgeEngine {
     /// Create a new judge engine that performs the given judge task.
-    pub fn new() -> JudgeEngine {
+    pub fn new() -> Self {
         JudgeEngine {
             languages: super::languages::LanguageManager::singleton(),
             config: JudgeEngineConfig::new()
@@ -123,20 +123,20 @@ impl JudgeEngine {
     /// `JudgeEngine` instance.
     fn find_language_provider(&self, lang: &LanguageIdentifier)
         -> Result<Arc<Box<dyn LanguageProvider>>> {
-        self.languages.find(lang).ok_or_else(
-            || Error::from(ErrorKind::LanguageNotFound(lang.clone())))
+        self.languages.find(lang)
+            .ok_or_else(|| Error::from(ErrorKind::LanguageNotFound(lang.clone())))
     }
 
     /// Get necessary compilation information for compiling the given program under the given
     /// scheme. This function can return `Ok(None)` to indicate that the given program need not to
     /// be compiled before execution.
     fn get_compile_info(&self,
-        program: &Program, scheme: CompilationScheme, output_dir: Option<&Path>)
+        program: &Program, scheme: CompilationScheme, output_dir: Option<PathBuf>)
         -> Result<Option<CompilationInfo>> {
         let lang_provider = self.find_language_provider(&program.language)?;
         if lang_provider.metadata().interpreted {
-            // This language is an interpreted language and source code do not
-            // need to be compiled before execution.
+            // This language is an interpreted language and source code do not need to be compiled
+            // before execution.
             Ok(None)
         } else {
             lang_provider.compile(program, output_dir, scheme)
@@ -146,20 +146,17 @@ impl JudgeEngine {
     }
 
     /// Execute the given compilation task.
-    pub fn compile(&self, task: &CompilationTaskDescriptor)
-        -> Result<CompilationResult> {
-        let output_dir = task.output_dir.as_ref().map(|p| p.as_path());
-        let compile_info = self.get_compile_info(&task.program, task.scheme, output_dir)?;
+    pub fn compile(&self, task: CompilationTaskDescriptor) -> Result<CompilationResult> {
+        let compile_info = self.get_compile_info(&task.program, task.scheme, task.output_dir)?;
 
         match compile_info {
-            Some(info) => self.execute_compiler(&info),
-            None => Ok(CompilationResult::succeed(&task.program.file))
+            Some(info) => self.execute_compiler(info),
+            None => Ok(CompilationResult::succeed(task.program.file))
         }
     }
 
     /// Execute the compiler configuration specified in the given `CompilationInfo` instance.
-    fn execute_compiler(&self, compile_info: &CompilationInfo)
-        -> Result<CompilationResult> {
+    fn execute_compiler(&self, compile_info: CompilationInfo) -> Result<CompilationResult> {
         let mut process_builder = compile_info.create_process_builder()?;
 
         // Redirect `stderr` of the compiler to a pipe.
@@ -172,7 +169,7 @@ impl JudgeEngine {
 
         match process_handle.exit_status() {
             ProcessExitStatus::Normal(0) =>
-                Ok(CompilationResult::succeed(&compile_info.output_file)),
+                Ok(CompilationResult::succeed(compile_info.output_file.clone())),
             _ => {
                 // Read all contents from `stderr_pipe`.
                 let mut err_reader = stderr_pipe.take_read_end().unwrap();
@@ -181,9 +178,14 @@ impl JudgeEngine {
                 // Ignore the result of `read_to_string` here.
                 err_reader.read_to_string(&mut err_msg).ok();
 
-                Ok(CompilationResult::fail(&err_msg))
+                Ok(CompilationResult::fail(err_msg))
             }
         }
+    }
+
+    /// Get a `Checker` trait object corresponding to the given builtin checker indicator.
+    fn get_builtin_checker(&self, checker: BuiltinCheckers) -> Checker {
+        checkers::get_checker(checker)
     }
 
     /// Get necessary execution information for executing the given program.
@@ -194,31 +196,30 @@ impl JudgeEngine {
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
     }
 
-    /// Get a `Checker` trait object corresponding to the given builtin checker indicator.
-    fn get_builtin_checker(&self, checker: BuiltinCheckers) -> Checker {
-        checkers::get_checker(checker)
-    }
-
     /// Execute the given judge task.
-    pub fn judge(&self, task: &JudgeTaskDescriptor) -> Result<JudgeResult> {
+    pub fn judge(&self, task: JudgeTaskDescriptor) -> Result<JudgeResult> {
         let judgee_lang_prov = self.find_language_provider(&task.program.language)?;
 
         // Get execution information of the judgee.
         let judgee_exec_info = judgee_lang_prov.execute(&task.program, ExecutionScheme::Judgee)
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
             ?;
-        let mut context = JudgeContext::new(&task, judgee_exec_info);
 
-        // Get execution information of the checker or interactor, if any.
-        match task.mode {
-            JudgeMode::Standard(checker) =>
-                context.builtin_checker = Some(self.get_builtin_checker(checker)),
-            JudgeMode::SpecialJudge(ref checker) =>
-                context.checker_exec_info = Some(
-                    self.get_execution_info(checker, ExecutionScheme::Checker)?),
-            JudgeMode::Interactive(ref interactor) =>
-                context.interactor_exec_info = Some(
-                    self.get_execution_info(interactor, ExecutionScheme::Interactor)?)
+        // Create judge context.
+        let mut context = match task.mode {
+            JudgeMode::Standard(checker) => {
+                let builtin_checker = self.get_builtin_checker(checker);
+                JudgeContext::standard(&task, judgee_exec_info, builtin_checker)
+            },
+            JudgeMode::SpecialJudge(ref checker) => {
+                let checker_exec_info = self.get_execution_info(checker, ExecutionScheme::Checker)?;
+                JudgeContext::special_judge(&task, judgee_exec_info, checker_exec_info)
+            },
+            JudgeMode::Interactive(ref interactor) => {
+                let interactor_exec_info = self.get_execution_info(
+                    interactor, ExecutionScheme::Interactor)?;
+                JudgeContext::interactive(&task, judgee_exec_info, interactor_exec_info)
+            }
         };
 
         self.judge_on_context(&mut context)?;
@@ -228,11 +229,10 @@ impl JudgeEngine {
     /// Execute judge on the given judge context.
     fn judge_on_context(&self, context: &mut JudgeContext) -> Result<()> {
         for test_case in context.task.test_suite.iter() {
-            context.test_case = Some(test_case);
-            context.test_case_result = Some(TestCaseResult::new());
+            context.test_case = Some(TestCaseContext::new(test_case));
             self.judge_on_test_case(context)?;
 
-            context.result.add_test_case_result(context.test_case_result.take().unwrap());
+            context.result.add_test_case_result(context.test_case.take().unwrap().result);
             if !context.result.verdict.is_accepted() {
                 break;
             }
@@ -242,25 +242,9 @@ impl JudgeEngine {
     }
 
     /// Execute judge on the current test case.
-    fn judge_on_test_case(&self, context: &mut JudgeContext) -> Result<()> {
-        let mut judgee_proc_bdr = context.judgee_exec_info.create_process_builder()?;
-
-        // Add the `ONLINE_JUDGE` environment variable.
-        judgee_proc_bdr.add_env("ONLINE_JUDGE", "TRUE").unwrap();
-
-        // Set resource limits.
-        judgee_proc_bdr.limits.cpu_time_limit = Some(context.task.limits.cpu_time_limit);
-        judgee_proc_bdr.limits.real_time_limit = Some(context.task.limits.real_time_limit);
-        judgee_proc_bdr.limits.memory_limit = Some(context.task.limits.memory_limit);
-        judgee_proc_bdr.use_native_rlimit = false;
-
-        judgee_proc_bdr.uid = self.config.judge_uid;
-        for syscall in &self.config.judgee_syscall_whitelist {
-            judgee_proc_bdr.allow_syscall(syscall.clone());
-        }
-
-        let test_case = context.test_case.unwrap();
-        self.populate_test_case_data_view(test_case, context.test_case_result.as_mut().unwrap())?;
+    fn judge_on_test_case(&self, context: &mut JudgeContext<'_>) -> Result<()> {
+        let test_case = context.test_case.as_mut().unwrap();
+        self.populate_test_case_data_view(test_case.descriptor, &mut test_case.result)?;
 
         // Dispatch to different judge engine logic according to different judge modes.
         match context.task.mode {
@@ -272,31 +256,50 @@ impl JudgeEngine {
         Ok(())
     }
 
+    /// Length of views into the input, output and error streams produced by the judgee.
+    const DATA_VIEW_LENGTH: usize = 200;
+
+    /// Populate the data view into the input file and answer file of the given test case into the
+    /// given `TestCaseResult` instance.
+    fn populate_test_case_data_view(&self,
+        test_case: &TestCaseDescriptor, result: &mut TestCaseResult) -> std::io::Result<()> {
+        let mut input_file = File::open(&test_case.input_file)?;
+        let mut output_file = File::open(&test_case.output_file)?;
+        result.input_view = input_file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+        result.output_view = output_file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+
+        Ok(())
+    }
+
     /// Execute judge on the current test case. The judge mode should be standard mode.
-    fn judge_std_on_test_case(&self, context: &mut JudgeContext) -> Result<()> {
+    fn judge_std_on_test_case(&self, context: &mut JudgeContext<'_>) -> Result<()> {
         self.execute_judgee_on_test_case(context)?;
-        if !context.test_case_result.as_ref().unwrap().verdict.is_accepted() {
+
+        let test_case = context.test_case.as_mut().unwrap();
+        if !test_case.result.verdict.is_accepted() {
             return Ok(());
         }
 
+        // We don't care about what the judgee process writes to the error file. Close the error
+        // file explicitly.
+        test_case.judgee_error_file.take();
+
         // Reset file pointers and execute the specified built-in answer checker.
-        let mut input_file = context.input_file.take().unwrap();
-        let answer_file = File::open(&context.test_case.as_ref().unwrap().output_file)?;
-        let mut judgee_output_file = context.judgee_output_file.take().unwrap();
-        context.judgee_error_file.take();   // Close error file explicitly.
+        let mut input_file = test_case.input_file.take().unwrap();
+        let answer_file = File::open(&test_case.descriptor.output_file)?;
+        let mut judgee_output_file = test_case.judgee_output_file.take().unwrap();
         input_file.seek(SeekFrom::Start(0))?;
         judgee_output_file.file.seek(SeekFrom::Start(0))?;
 
-        let checker = context.builtin_checker.as_ref().unwrap();
         let mut checker_context = CheckerContext::new(
             TokenizedReader::new(input_file),
             TokenizedReader::new(answer_file),
             TokenizedReader::new(judgee_output_file.file));
+        let checker = context.builtin_checker.unwrap();
         let checker_result = checker(&mut checker_context)?;
 
-        let test_case_result = context.test_case_result.as_mut().unwrap();
-        test_case_result.comment = checker_result.comment;
-        test_case_result.verdict = if checker_result.accepted {
+        test_case.result.comment = checker_result.comment;
+        test_case.result.verdict = if checker_result.accepted {
             Verdict::Accepted
         } else {
             Verdict::WrongAnswer
@@ -306,9 +309,11 @@ impl JudgeEngine {
     }
 
     /// Execute judge on the given test case. The judge mode should be special judge mode.
-    fn judge_spj_on_test_case(&self, context: &mut JudgeContext) -> Result<()> {
+    fn judge_spj_on_test_case(&self, context: &mut JudgeContext<'_>) -> Result<()> {
         self.execute_judgee_on_test_case(context)?;
-        if !context.test_case_result.as_ref().unwrap().verdict.is_accepted() {
+
+        let test_case = context.test_case.as_ref().unwrap();
+        if !test_case.result.verdict.is_accepted() {
             return Ok(());
         }
 
@@ -325,37 +330,55 @@ impl JudgeEngine {
     ///
     /// If the judgee program exit successfully and produces meaningful answers, this function
     /// returns `Ok(Some(..))`; otherwise this function returns `Ok(None)` if no error occur.
-    fn execute_judgee_on_test_case(&self, context: &mut JudgeContext)
-        -> Result<()> {
-        // Apply redirections.
-        let test_case = context.test_case.unwrap();
-        context.input_file = Some(File::open(&test_case.input_file)?);
-        context.judgee_output_file = Some(TempFile::new()?);
-        context.judgee_error_file = Some(TempFile::new()?);
+    fn execute_judgee_on_test_case(&self, context: &mut JudgeContext<'_>) -> Result<()> {
+        // Create process builder for the judgee process.
+        let mut judgee_proc_bdr = context.judgee_exec_info.create_process_builder()?;
 
-        let input_file = context.input_file.as_mut().unwrap();
-        let judgee_output_file = context.judgee_output_file.as_mut().unwrap();
-        let judgee_error_file = context.judgee_error_file.as_mut().unwrap();
+        // Add the `ONLINE_JUDGE` environment variable.
+        judgee_proc_bdr.add_env(String::from("ONLINE_JUDGE"), String::from("TRUE")).unwrap();
 
-        let mut judgee_builder = context.judgee_exec_info.create_process_builder()?;
-        judgee_builder.redirections.stdin = Some(input_file.duplicate()?);
-        judgee_builder.redirections.stdout = Some(judgee_output_file.file.duplicate()?);
-        judgee_builder.redirections.stderr = Some(judgee_error_file.file.duplicate()?);
+        // Set resource limits.
+        judgee_proc_bdr.limits.cpu_time_limit = Some(context.task.limits.cpu_time_limit);
+        judgee_proc_bdr.limits.real_time_limit = Some(context.task.limits.real_time_limit);
+        judgee_proc_bdr.limits.memory_limit = Some(context.task.limits.memory_limit);
+        judgee_proc_bdr.use_native_rlimit = false;
+
+        // Set effective user ID and syscall whitelist for the judgee.
+        judgee_proc_bdr.uid = self.config.judge_uid;
+        for syscall in &self.config.judgee_syscall_whitelist {
+            judgee_proc_bdr.allow_syscall(syscall.clone());
+        }
+
+        // Prepare file descriptors used for redirections.
+        let test_case = context.test_case.as_mut().unwrap();
+        let input_file = File::open(&test_case.descriptor.input_file)?;
+        let output_file = TempFile::new()?;
+        let error_file = TempFile::new()?;
+
+        judgee_proc_bdr.redirections.stdin = Some(input_file.duplicate()?);
+        judgee_proc_bdr.redirections.stdout = Some(output_file.file.duplicate()?);
+        judgee_proc_bdr.redirections.stderr = Some(error_file.file.duplicate()?);
+
+        // Attach these file descriptors onto the current test case context for further use.
+        test_case.input_file = Some(input_file);
+        test_case.judgee_output_file = Some(output_file);
+        test_case.judgee_error_file = Some(error_file);
 
         // Execute the judgee alone.
-        let mut process = judgee_builder.start()?;
+        let mut process = judgee_proc_bdr.start()?;
         process.wait_for_exit()?;
 
-        let result = context.test_case_result.as_mut().unwrap();
-        result.set_judgee_exit_status(process.exit_status());
-        result.rusage = process.rusage();
+        test_case.result.set_judgee_exit_status(process.exit_status());
+        test_case.result.rusage = process.rusage();
 
         // Extract data view into the judgee's output and error contents.
-        judgee_output_file.file.seek(SeekFrom::Start(0))?;
-        judgee_error_file.file.seek(SeekFrom::Start(0))?;
-        result.output_view = judgee_output_file.file.read_to_string_lossy(
+        let output_file = &mut test_case.judgee_output_file.as_mut().unwrap().file;
+        let error_file = &mut test_case.judgee_error_file.as_mut().unwrap().file;
+        output_file.seek(SeekFrom::Start(0))?;
+        error_file.seek(SeekFrom::Start(0))?;
+        test_case.result.output_view = output_file.read_to_string_lossy(
             JudgeEngine::DATA_VIEW_LENGTH)?;
-        result.error_view = judgee_error_file.file.read_to_string_lossy(
+        test_case.result.error_view = error_file.read_to_string_lossy(
             JudgeEngine::DATA_VIEW_LENGTH)?;
 
         Ok(())
@@ -366,7 +389,7 @@ impl JudgeEngine {
         let mut checker_bdr = context.checker_exec_info.as_ref().unwrap().create_process_builder()?;
 
         // Apply `ONLINE_JUDGE` environment variable to the checker process.
-        checker_bdr.add_env("ONLINE_JUDGE", "TRUE").unwrap();
+        checker_bdr.add_env(String::from("ONLINE_JUDGE"), String::from("TRUE")).unwrap();
 
         // Apply resource constraits to the checker process.
         checker_bdr.limits.cpu_time_limit = self.config.checker_cpu_time_limit;
@@ -380,10 +403,11 @@ impl JudgeEngine {
 
         // Pass input file, answer file and judgee's output file to the custom checker via command
         // line arguments.
-        let test_case = context.test_case.unwrap();
-        checker_bdr.add_arg(test_case.input_file.to_str().unwrap())?;
-        checker_bdr.add_arg(test_case.output_file.to_str().unwrap())?;
-        checker_bdr.add_arg(context.judgee_output_file.as_ref().unwrap().path.to_str().unwrap())?;
+        let mut test_case = context.test_case.as_mut().unwrap();
+        checker_bdr.add_arg(String::from(test_case.descriptor.input_file.to_str().unwrap()))?;
+        checker_bdr.add_arg(String::from(test_case.descriptor.output_file.to_str().unwrap()))?;
+        checker_bdr.add_arg(String::from(
+            test_case.judgee_output_file.as_ref().unwrap().path.to_str().unwrap()))?;
 
         checker_bdr.uid = self.config.judge_uid;
         for syscall in &self.config.checker_syscall_whitelist {
@@ -399,37 +423,36 @@ impl JudgeEngine {
         let mut checker_output_msg = String::new();
         checker_output.file.read_to_string(&mut checker_output_msg)?;
 
-        let result = context.test_case_result.as_mut().unwrap();
         match checker_proc.exit_status() {
             ProcessExitStatus::Normal(0) => {
                 // Accepted.
-                result.verdict = Verdict::Accepted;
-                result.comment = Some(checker_output_msg);
+                test_case.result.verdict = Verdict::Accepted;
+                test_case.result.comment = Some(checker_output_msg);
             },
             ProcessExitStatus::Normal(..) => {
                 // Rejected.
-                result.verdict = Verdict::WrongAnswer;
-                result.comment = Some(checker_output_msg);
+                test_case.result.verdict = Verdict::WrongAnswer;
+                test_case.result.comment = Some(checker_output_msg);
             },
             ProcessExitStatus::KilledBySignal(sig) => {
-                result.verdict = Verdict::CheckerFailed;
-                result.comment = Some(format!("checker killed by signal: {}", sig))
+                test_case.result.verdict = Verdict::CheckerFailed;
+                test_case.result.comment = Some(format!("checker killed by signal: {}", sig))
             },
             ProcessExitStatus::CPUTimeLimitExceeded => {
-                result.verdict = Verdict::CheckerFailed;
-                result.comment = Some(String::from("checker CPU time limit exceeded"));
+                test_case.result.verdict = Verdict::CheckerFailed;
+                test_case.result.comment = Some(String::from("checker CPU time limit exceeded"));
             },
             ProcessExitStatus::MemoryLimitExceeded => {
-                result.verdict = Verdict::CheckerFailed;
-                result.comment = Some(String::from("checker memory limit exceeded"));
+                test_case.result.verdict = Verdict::CheckerFailed;
+                test_case.result.comment = Some(String::from("checker memory limit exceeded"));
             },
             ProcessExitStatus::RealTimeLimitExceeded => {
-                result.verdict = Verdict::CheckerFailed;
-                result.comment = Some(String::from("checker real time limit exceeded"));
+                test_case.result.verdict = Verdict::CheckerFailed;
+                test_case.result.comment = Some(String::from("checker real time limit exceeded"));
             },
             ProcessExitStatus::BannedSyscall => {
-                result.verdict = Verdict::CheckerFailed;
-                result.comment = Some(String::from("checker invokes banned system call"));
+                test_case.result.verdict = Verdict::CheckerFailed;
+                test_case.result.comment = Some(String::from("checker invokes banned system call"));
             },
             _ => unreachable!()
         }
@@ -442,20 +465,39 @@ impl JudgeEngine {
         // TODO: Implement judge_itr_on_test_case.
         unimplemented!()
     }
+}
 
-    /// Length of views into the input, output and error streams produced by the judgee.
-    const DATA_VIEW_LENGTH: usize = 200;
+struct TestCaseContext<'a> {
+    /// Currently executing test case.
+    descriptor: &'a TestCaseDescriptor,
 
-    /// Populate the data view into the input file and answer file of the given test case into the
-    /// given `TestCaseResult` instance.
-    fn populate_test_case_data_view(&self,
-        test_case: &TestCaseDescriptor, result: &mut TestCaseResult) -> std::io::Result<()> {
-        let mut input_file = File::open(&test_case.input_file)?;
-        let mut output_file = File::open(&test_case.output_file)?;
-        result.input_view = input_file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
-        result.output_view = output_file.read_to_string_lossy(JudgeEngine::DATA_VIEW_LENGTH)?;
+    /// Input file of currently executing test case.
+    input_file: Option<File>,
 
-        Ok(())
+    /// Answer file of currently executing test case.
+    answer_file: Option<File>,
+
+    /// Judgee's output file of currently executing test case.
+    judgee_output_file: Option<TempFile>,
+
+    /// Judgee's error file of currently executing test case.
+    judgee_error_file: Option<TempFile>,
+
+    /// Result of currently executing test case.
+    result: TestCaseResult
+}
+
+impl<'a> TestCaseContext<'a> {
+    /// Create a new `TestCaseDescriptor` instance.
+    fn new(test_case: &'a TestCaseDescriptor) -> Self {
+        TestCaseContext {
+            descriptor: test_case,
+            input_file: None,
+            answer_file: None,
+            judgee_output_file: None,
+            judgee_error_file: None,
+            result: TestCaseResult::new()
+        }
     }
 }
 
@@ -476,45 +518,56 @@ struct JudgeContext<'a> {
     /// The execution information about the interactor.
     interactor_exec_info: Option<ExecutionInfo>,
 
-    /// Currently executing test case.
-    test_case: Option<&'a TestCaseDescriptor>,
-
-    /// Input file of currently executing test case.
-    input_file: Option<File>,
-
-    /// Answer file of currently executing test case.
-    answer_file: Option<File>,
-
-    /// Judgee's output file of currently executing test case.
-    judgee_output_file: Option<TempFile>,
-
-    /// Judgee's error file of currently executing test case.
-    judgee_error_file: Option<TempFile>,
-
-    /// Result of currently executing test case.
-    test_case_result: Option<TestCaseResult>,
+    /// Context of currently executing test case.
+    test_case: Option<TestCaseContext<'a>>,
 
     /// Result of the judge task.
     result: JudgeResult,
 }
 
 impl<'a> JudgeContext<'a> {
-    /// Create a new `JudgeContext` instance.
-    fn new(task: &'a JudgeTaskDescriptor, judgee_exec_info: ExecutionInfo)
-        -> JudgeContext<'a> {
+    /// Create a `JudgeContext` instance representing context for a judge task whose judge mode is
+    /// `Standard`.
+    fn standard(task: &'a JudgeTaskDescriptor, judgee_exec_info: ExecutionInfo,
+        builtin_checker: Checker) -> Self {
+        JudgeContext {
+            task,
+            judgee_exec_info,
+            builtin_checker: Some(builtin_checker),
+            checker_exec_info: None,
+            interactor_exec_info: None,
+            test_case: None,
+            result: JudgeResult::new()
+        }
+    }
+
+    /// Create a `JudgeContext` instance representing context for a judge task whose judge mode is
+    /// `SpecialJudge`.
+    fn special_judge(task: &'a JudgeTaskDescriptor, judgee_exec_info: ExecutionInfo,
+        checker_exec_info: ExecutionInfo) -> Self {
+        JudgeContext {
+            task,
+            judgee_exec_info,
+            builtin_checker: None,
+            checker_exec_info: Some(checker_exec_info),
+            interactor_exec_info: None,
+            test_case: None,
+            result: JudgeResult::new()
+        }
+    }
+
+    /// Create a `JudgeContext` instance representing context for a judge task whose judge mode is
+    /// `Interactive`.
+    fn interactive(task: &'a JudgeTaskDescriptor, judgee_exec_info: ExecutionInfo,
+        interactor_exec_info: ExecutionInfo) -> Self {
         JudgeContext {
             task,
             judgee_exec_info,
             builtin_checker: None,
             checker_exec_info: None,
-            interactor_exec_info: None,
+            interactor_exec_info: Some(interactor_exec_info),
             test_case: None,
-            input_file: None,
-            answer_file: None,
-            judgee_output_file: None,
-            judgee_error_file: None,
-            test_case_result: None,
-            result: JudgeResult::empty()
+            result: JudgeResult::new()
         }
     }
 }
@@ -541,9 +594,10 @@ pub struct ExecutionInfo {
 
 impl ExecutionInfo {
     /// Create a new `ExecutionInfo` instance.
-    pub fn new(executable: &Path) -> ExecutionInfo {
+    pub fn new<T>(executable: T) -> ExecutionInfo
+        where T: Into<PathBuf> {
         ExecutionInfo {
-            executable: executable.to_owned(),
+            executable: executable.into(),
             args: Vec::new(),
             envs: Vec::new()
         }
@@ -552,12 +606,12 @@ impl ExecutionInfo {
 
 impl Executable for ExecutionInfo {
     fn create_process_builder(&self) -> Result<ProcessBuilder> {
-        let mut builder = ProcessBuilder::new(&self.executable);
+        let mut builder = ProcessBuilder::new(self.executable.clone());
         for arg in self.args.iter() {
-            builder.add_arg(arg)?;
+            builder.add_arg(arg.clone())?;
         }
         for (name, value) in self.envs.iter() {
-            builder.add_env(name, value)?;
+            builder.add_env(name.clone(), value.clone())?;
         }
 
         Ok(builder)
@@ -576,10 +630,11 @@ pub struct CompilationInfo {
 
 impl CompilationInfo {
     /// Create a new `CompilationInfo` instance.
-    pub fn new(compiler: &Path, output_file: &Path) -> CompilationInfo {
+    pub fn new<T1, T2>(compiler: T1, output_file: T2) -> CompilationInfo
+        where T1: Into<PathBuf>, T2: Into<PathBuf> {
         CompilationInfo {
             compiler: ExecutionInfo::new(compiler),
-            output_file: output_file.to_owned()
+            output_file: output_file.into()
         }
     }
 }

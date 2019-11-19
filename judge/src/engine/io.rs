@@ -250,7 +250,9 @@ impl TempFile {
     /// Create a new temporary file with the given path template. The given path template should be
     /// valid to be passed to the `mkstemp` native function to create temporary files; otherwise
     /// this function panics.
-    pub fn from_path_template(template: PathBuf) -> std::io::Result<TempFile> {
+    pub fn from_path_template<T>(template: T) -> std::io::Result<TempFile>
+        where T: Into<PathBuf> {
+        let template = template.into();
         let (fd, path) = nix::unistd::mkstemp(&template)
             .map_err(|e| std::io::Error::from_raw_os_error(expect_nix_sys_err(e)))
             ?;

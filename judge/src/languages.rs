@@ -5,7 +5,7 @@ pub mod loader;
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Once, RwLock};
 
 use super::{Program, CompilationScheme};
@@ -30,8 +30,9 @@ pub struct LanguageIdentifier(String, LanguageBranch);
 
 impl LanguageIdentifier {
     /// Create a new `LanguageIdentifier` instance.
-    pub fn new(language: &str, branch: LanguageBranch) -> LanguageIdentifier {
-        LanguageIdentifier(language.to_owned(), branch)
+    pub fn new<T>(language: T, branch: LanguageBranch) -> Self
+        where T: Into<String> {
+        LanguageIdentifier(language.into(), branch)
     }
 
     /// Get the language part of the identifier.
@@ -76,8 +77,9 @@ pub struct LanguageBranch(String, String);
 
 impl LanguageBranch {
     /// Create a new `LanguageBranch` instance.
-    pub fn new(dialect: &str, version: &str) -> LanguageBranch {
-        LanguageBranch(dialect.to_owned(), version.to_owned())
+    pub fn new<T1, T2>(dialect: T1, version: T2) -> Self
+        where T1: Into<String>, T2: Into<String> {
+        LanguageBranch(dialect.into(), version.into())
     }
 
     /// Get the dialect of the branch.
@@ -124,9 +126,10 @@ impl LanguageProviderMetadata {
     /// `LanguageIdentifier` value. `interpreted` indicates whether programs written in this
     /// language is interpreted, and does not need to be compiled into some form (binary code,
     /// bytecode, etc.) before they can be executed.
-    pub fn new(name: String, interpreted: bool) -> LanguageProviderMetadata {
+    pub fn new<T>(name: T, interpreted: bool) -> Self
+        where T: Into<String> {
         LanguageProviderMetadata {
-            name,
+            name: name.into(),
             branches: Vec::new(),
             interpreted
         }
@@ -145,7 +148,7 @@ pub trait LanguageProvider : Sync {
 
     /// Create a `CompilationInfo` instance containing necessary information used to compile the
     /// source code.
-    fn compile(&self, program: &Program, output_dir: Option<&Path>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
         -> std::result::Result<CompilationInfo, Box<dyn std::error::Error>>;
 
     /// Create an `ExecutionInfo` instance containing necessary information used to execute the
@@ -214,8 +217,7 @@ impl LanguageManager {
     ///
     /// If none of the `LanguageProviders` registered in this instance is suitable, then returns
     /// `None`.
-    pub fn find(&self, lang: &LanguageIdentifier)
-        -> Option<Arc<Box<dyn LanguageProvider>>> {
+    pub fn find(&self, lang: &LanguageIdentifier) -> Option<Arc<Box<dyn LanguageProvider>>> {
         let lock = self.providers.read().unwrap();
         if let Some(prov) = lock.get(lang.language()) {
             for provider in prov {

@@ -1,7 +1,7 @@
 //! This module defines the language provider for the Python programming language.
 //!
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Once;
 
@@ -29,7 +29,7 @@ static METADATA_ONCE: Once = Once::new();
 
 fn init_metadata() {
     METADATA_ONCE.call_once(|| {
-        let mut metadata = LanguageProviderMetadata::new(String::from("python"), true);
+        let mut metadata = LanguageProviderMetadata::new("python", true);
         metadata.branches.push(LanguageBranch::new("cpy", "3.6"));
         metadata.branches.push(LanguageBranch::new("cpy", "3.7"));
         metadata.branches.push(LanguageBranch::new("cpy", "3.8"));
@@ -82,7 +82,7 @@ impl LanguageProvider for PythonLanguageProvider {
         unsafe { METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, _program: &Program, _output_dir: Option<&Path>, _scheme: CompilationScheme)
+    fn compile(&self, _program: &Program, _output_dir: Option<PathBuf>, _scheme: CompilationScheme)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         // Because python is an interpreted language, this function is not reachable.
         unreachable!()
@@ -90,8 +90,7 @@ impl LanguageProvider for PythonLanguageProvider {
 
     fn execute(&self, program: &Program, scheme: ExecutionScheme)
         -> Result<ExecutionInfo, Box<dyn std::error::Error>> {
-        let mut ei = ExecutionInfo::new(
-            &PathBuf::from(format!("python{}", program.language.version())));
+        let mut ei = ExecutionInfo::new(format!("python{}", program.language.version()));
         ei.args.push(String::from("-OO"));
         ei.args.push(String::from("-B"));
 

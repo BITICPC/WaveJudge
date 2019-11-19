@@ -13,7 +13,7 @@ pub mod engine;
 pub mod languages;
 
 use std::ops::{BitAnd, BitAndAssign};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use sandbox::{MemorySize, ProcessResourceUsage, ProcessExitStatus};
@@ -64,7 +64,7 @@ pub struct CompilationTaskDescriptor {
 
 impl CompilationTaskDescriptor {
     /// Create a new `CompilationTaskDescriptor` instance.
-    pub fn new(program: Program) -> CompilationTaskDescriptor {
+    pub fn new(program: Program) -> Self {
         CompilationTaskDescriptor {
             program,
             scheme: CompilationScheme::Judgee,
@@ -100,19 +100,21 @@ pub struct CompilationResult {
 
 impl CompilationResult {
     /// Create a `CompilationResult` instance representing a successful compilation result.
-    pub fn succeed(output_file: &Path) -> CompilationResult {
+    pub fn succeed<T>(output_file: T) -> CompilationResult
+        where T: Into<PathBuf> {
         CompilationResult {
             succeeded: true,
             compiler_out: None,
-            output_file: Some(output_file.to_owned())
+            output_file: Some(output_file.into())
         }
     }
 
     /// Create a `CompilationResult` instance representing an unsuccessful compilation result.
-    pub fn fail(compiler_out: &str) -> CompilationResult {
+    pub fn fail<T>(compiler_out: T) -> CompilationResult
+        where T: Into<String> {
         CompilationResult {
             succeeded: false,
-            compiler_out: Some(compiler_out.to_owned()),
+            compiler_out: Some(compiler_out.into()),
             output_file: None
         }
     }
@@ -137,7 +139,7 @@ pub struct JudgeTaskDescriptor {
 
 impl JudgeTaskDescriptor {
     /// Create a new `JudgeTaskDescriptor` instance.
-    pub fn new(program: Program) -> JudgeTaskDescriptor {
+    pub fn new(program: Program) -> Self {
         JudgeTaskDescriptor {
             program,
             mode: JudgeMode::default(),
@@ -172,7 +174,7 @@ pub struct ResourceLimits {
 }
 
 impl Default for ResourceLimits {
-    fn default() -> ResourceLimits {
+    fn default() -> Self {
         ResourceLimits {
             cpu_time_limit: Duration::from_secs(1),
             real_time_limit: Duration::from_secs(3),
@@ -195,7 +197,7 @@ pub enum BuiltinCheckers {
 }
 
 impl Default for BuiltinCheckers {
-    fn default() -> BuiltinCheckers {
+    fn default() -> Self {
         BuiltinCheckers::Default
     }
 }
@@ -222,7 +224,7 @@ pub enum JudgeMode {
 }
 
 impl Default for JudgeMode {
-    fn default() -> JudgeMode {
+    fn default() -> Self {
         JudgeMode::Standard(BuiltinCheckers::Default)
     }
 }
@@ -251,10 +253,10 @@ pub struct JudgeResult {
 
 impl JudgeResult {
     /// Create an empty `JudgeResult` instance.
-    pub fn empty() -> JudgeResult {
+    pub fn new() -> Self {
         JudgeResult {
             verdict: Verdict::Accepted,
-            rusage: ProcessResourceUsage::empty(),
+            rusage: ProcessResourceUsage::new(),
             test_suite: Vec::new()
         }
     }
@@ -280,8 +282,8 @@ impl JudgeResult {
 }
 
 impl Default for JudgeResult {
-    fn default() -> JudgeResult {
-        JudgeResult::empty()
+    fn default() -> Self {
+        JudgeResult::new()
     }
 }
 
@@ -320,13 +322,13 @@ pub struct TestCaseResult {
 
 impl TestCaseResult {
     /// Create a new `TestCaseResult` instance.
-    pub fn new() -> TestCaseResult {
+    pub fn new() -> Self {
         TestCaseResult {
             verdict: Verdict::Accepted,
             judgee_exit_status: ProcessExitStatus::NotExited,
             checker_exit_status: None,
             interactor_exit_status: None,
-            rusage: ProcessResourceUsage::empty(),
+            rusage: ProcessResourceUsage::new(),
             comment: None,
             input_view: None,
             answer_view: None,
@@ -393,7 +395,7 @@ impl Verdict {
     }
 
     /// If this `Verdict` is `Verdict::Accepted`, then returns `rhs`; otherwise returns `self`.
-    pub fn and(mut self, rhs: Verdict) -> Verdict {
+    pub fn and(mut self, rhs: Self) -> Self {
         self &= rhs;
         self
     }

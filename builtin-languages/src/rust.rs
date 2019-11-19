@@ -3,7 +3,7 @@
 
 use crate::InitLanguageError;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Once;
 
@@ -28,7 +28,7 @@ static METADATA_ONCE: Once = Once::new();
 
 fn init_metadata() {
     METADATA_ONCE.call_once(|| {
-        let mut metadata = LanguageProviderMetadata::new(String::from("rust"), false);
+        let mut metadata = LanguageProviderMetadata::new("rust", false);
         metadata.branches.push(LanguageBranch::new("rust", "39"));
 
         unsafe {
@@ -76,11 +76,11 @@ impl LanguageProvider for RustLanguageProvider {
         unsafe { METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<&Path>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         let output_file = crate::utils::make_output_file_path(&program.file, output_dir);
 
-        let mut ci = CompilationInfo::new(&PathBuf::from("rustc"), &output_file);
+        let mut ci = CompilationInfo::new("rustc", output_file);
         ci.compiler.args.push(String::from("-C"));
         ci.compiler.args.push(String::from("opt-level=2"));
         ci.compiler.args.push(String::from("--cfg"));
