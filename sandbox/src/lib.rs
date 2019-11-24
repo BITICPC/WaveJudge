@@ -682,7 +682,6 @@ mod tests {
         assert_eq!(2 * 1024, MemorySize::KiloBytes(2).bytes());
         assert_eq!(2 * 1024 * 1024, MemorySize::MegaBytes(2).bytes());
         assert_eq!(2 * 1024 * 1024 * 1024, MemorySize::GigaBytes(2).bytes());
-        assert_eq!(2 * 1024 * 1024 * 1024,
-            MemorySize::TeraBytes(2).bytes());
+        assert_eq!(2 * 1024 * 1024 * 1024 * 1024, MemorySize::TeraBytes(2).bytes());
     }
 }
