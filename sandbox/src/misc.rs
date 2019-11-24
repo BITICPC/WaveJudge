@@ -5,7 +5,7 @@ use std::time::Duration;
 /// Formally, this function checks whether the byte sequence of the string slice contains any
 /// b'\x00'. If so, this function returns `false`.
 ///
-/// ```
+/// ```ignore
 /// assert!(is_valid_c_string("abc哈哈哈"));
 /// assert!(!is_valid_c_string("abc\x00哈哈哈"));
 /// ```
@@ -32,4 +32,16 @@ fn clocks_per_sec() -> i64 {
 /// Create a `Duration` instance from clocks number.
 pub fn duration_from_clocks(clocks: libc::clock_t) -> Duration {
     Duration::from_secs_f64(clocks as f64 / clocks_per_sec() as f64)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_c_string;
+
+    #[test]
+    fn test_is_valid_c_string() {
+        assert!(is_valid_c_string("abc哈哈哈"));
+        assert!(!is_valid_c_string("abc\x00哈哈哈"));
+    }
 }
