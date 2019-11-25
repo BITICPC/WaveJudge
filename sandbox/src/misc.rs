@@ -1,4 +1,7 @@
 use std::time::Duration;
+use std::os::unix::io::RawFd;
+
+use nix::fcntl::{FcntlArg, FdFlag};
 
 /// Check if the given string slice is a valid C-style string.
 ///
@@ -33,6 +36,16 @@ fn clocks_per_sec() -> i64 {
 /// Create a `Duration` instance from clocks number.
 pub fn duration_from_clocks(clocks: libc::clock_t) -> Duration {
     Duration::from_secs_f64(clocks as f64 / clocks_per_sec() as f64)
+}
+
+/// This function calls `dup2(old_fd, new_fd)` and set the `O_CLOEXEC` flag on the old file
+/// descriptor. This function is useful when duplicating file descriptors for standard streams
+/// that can effectively prevent the original file descriptors from leaking.
+pub fn dup_and_cloexec(old_fd: RawFd, new_fd: RawFd) -> nix::Result<()> {
+    nix::unistd::dup2(old_fd, new_fd)?;
+    nix::fcntl::fcntl(old_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
+
+    Ok(())
 }
 
 

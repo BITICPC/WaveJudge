@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::io::IntoRawFd;
+use std::os::unix::io::AsRawFd;
 
 use nix::sys::signal::Signal;
 use nix::unistd::{Uid, Pid, ForkResult};
@@ -402,18 +402,18 @@ impl ProcessBuilder {
     /// Apply redirections specified in `self.redirections` to the calling process.
     fn apply_redirections(&mut self) -> Result<()> {
         if self.redirections.stdin.is_some() {
-            nix::unistd::dup2(
-                self.redirections.stdin.take().unwrap().into_raw_fd(),
+            misc::dup_and_cloexec(
+                self.redirections.stdin.as_ref().unwrap().as_raw_fd(),
                 libc::STDIN_FILENO)?;
         }
         if self.redirections.stdout.is_some() {
-            nix::unistd::dup2(
-                self.redirections.stdout.take().unwrap().into_raw_fd(),
+            misc::dup_and_cloexec(
+                self.redirections.stdout.as_ref().unwrap().as_raw_fd(),
                 libc::STDOUT_FILENO)?;
         }
         if self.redirections.stderr.is_some() {
-            nix::unistd::dup2(
-                self.redirections.stderr.take().unwrap().into_raw_fd(),
+            misc::dup_and_cloexec(
+                self.redirections.stderr.as_ref().unwrap().as_raw_fd(),
                 libc::STDERR_FILENO)?;
         }
 
