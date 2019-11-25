@@ -68,6 +68,21 @@ type LoadFunction = unsafe extern fn() -> Result<(), Box<dyn std::error::Error>>
 /// application.
 pub fn load_dylib<T>(file: T) -> Result<(), LoadDylibError>
     where T: AsRef<Path> {
+    let file = file.as_ref();
+    info!("Loading language provider library: \"{}\"...", file.display());
+
+    match load_dylib_impl(file) {
+        Ok(..) => Ok(()),
+        Err(e) => {
+            error!("Failed to load language provider library \"{}\": {}", file.display(), e);
+            Err(e)
+        }
+    }
+}
+
+/// Do the real work of loading dynamic linking library containing custom language providers.
+fn load_dylib_impl<T>(file: T) -> Result<(), LoadDylibError>
+    where T: AsRef<Path> {
     let lib = Library::new(file.as_ref())?;
     unsafe {
         let func: Symbol<LoadFunction> = lib.get(DYLIB_INIT_SYMBOL)?;

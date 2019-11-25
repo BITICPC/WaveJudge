@@ -51,6 +51,7 @@ use io::{
 
 
 /// Configuration for a judge engine instance.
+#[derive(Debug)]
 pub struct JudgeEngineConfig {
     /// The effective user ID of the judgee, answer checker and interactor.
     pub judge_uid: Option<UserId>,
@@ -581,6 +582,7 @@ trait Executable {
 }
 
 /// Provide necessary information to execute a program.
+#[derive(Debug)]
 pub struct ExecutionInfo {
     /// Path to the executable file to be executed.
     pub executable: PathBuf,
@@ -619,6 +621,7 @@ impl Executable for ExecutionInfo {
 }
 
 /// Provide necessary information to compile a source program.
+#[derive(Debug)]
 pub struct CompilationInfo {
     /// Information necessary to execute the compiler instance.
     pub compiler: ExecutionInfo,

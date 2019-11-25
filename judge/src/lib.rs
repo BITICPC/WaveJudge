@@ -3,6 +3,7 @@
 
 #[macro_use]
 extern crate error_chain;
+#[macro_use]
 extern crate log;
 extern crate libc;
 extern crate nix;
@@ -50,7 +51,7 @@ error_chain! {
 
 
 /// Describe a compilation task.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CompilationTaskDescriptor {
     /// The program to be compiled.
     pub program: Program,
@@ -74,7 +75,7 @@ impl CompilationTaskDescriptor {
 }
 
 /// Represent the scheme of a compilation job.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum CompilationScheme {
     /// The program to be compiled is a judgee.
     Judgee,
@@ -87,6 +88,7 @@ pub enum CompilationScheme {
 }
 
 /// Represent the result of a compilation job.
+#[derive(Debug)]
 pub struct CompilationResult {
     /// Is the compilation job successful?
     pub succeeded: bool,
@@ -151,7 +153,7 @@ impl JudgeTaskDescriptor {
 
 /// Represent a program stored in local disk file, along with the corresponding language
 /// environment. The program file may either be a source file or an executable file.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Program {
     /// Path to the program file.
     pub file: PathBuf,
@@ -161,7 +163,7 @@ pub struct Program {
 }
 
 /// Resource limits that should be applied to the judgee when executing judge.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ResourceLimits {
     /// CPU time limit.
     pub cpu_time_limit: Duration,
@@ -184,7 +186,7 @@ impl Default for ResourceLimits {
 }
 
 /// Represent built-in answer checkers used in standard judge mode.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum BuiltinCheckers {
     /// The default built-in checker.
     Default,
@@ -203,7 +205,7 @@ impl Default for BuiltinCheckers {
 }
 
 /// The judge mode.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum JudgeMode {
     /// Standard judge mode. The input of the judgee is redirected to the input file of each test
     /// case, and the output of the judgee is compared against the answer file of corresponding test
@@ -230,7 +232,7 @@ impl Default for JudgeMode {
 }
 
 /// Describe a test case.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TestCaseDescriptor {
     /// Path to the input file.
     pub input_file: PathBuf,
@@ -240,6 +242,7 @@ pub struct TestCaseDescriptor {
 }
 
 /// Result of a judge task.
+#[derive(Debug)]
 pub struct JudgeResult {
     /// Overall verdict of the judge task.
     pub verdict: Verdict,
@@ -288,6 +291,7 @@ impl Default for JudgeResult {
 }
 
 /// Result of a judge task on a specific test case.
+#[derive(Debug)]
 pub struct TestCaseResult {
     /// Verdict of the test case.
     pub verdict: Verdict,
@@ -355,7 +359,7 @@ impl TestCaseResult {
 }
 
 /// Verdict of the judge.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Verdict {
     /// The judgee accepted all test cases in the test suite.
     Accepted,
