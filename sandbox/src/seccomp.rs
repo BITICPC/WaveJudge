@@ -13,7 +13,7 @@ use seccomp_sys::*;
 
 
 /// The error type used in `seccomp` module.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct SeccompError {
     errno: i32
 }
@@ -44,8 +44,7 @@ impl Error for SeccompError {
 pub type Result<T> = std::result::Result<T, SeccompError>;
 
 /// Represent the action to take on specific syscall.
-#[derive(Clone, Copy)]
-#[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
 pub enum Action {
     /// Allow the syscall.
     Allow,
@@ -82,6 +81,7 @@ impl Action {
 }
 
 /// Represent a syscall filter.
+#[derive(Clone, Copy, Debug)]
 pub struct SyscallFilter {
     /// The syscall ID to filter.
     pub syscall: i32,

@@ -14,6 +14,8 @@
 //!
 
 #[macro_use]
+extern crate log;
+#[macro_use]
 extern crate error_chain;
 extern crate libc;
 extern crate nix;
@@ -172,8 +174,10 @@ impl SystemCall {
         let name = name.into();
         let name_cstr = CString::new(name.clone())
             .map_err(|_| Error::from(ErrorKind::InvalidSystemCallName))?;
+
         let id = unsafe { seccomp_sys::seccomp_syscall_resolve_name(name_cstr.as_ptr()) };
         if id < 0 {
+            debug!("Unknown syscall name: \"{}\"", name);
             return Err(Error::from(ErrorKind::InvalidSystemCallName));
         }
 
@@ -198,7 +202,7 @@ impl PartialEq for SystemCall {
 }
 
 /// Specify limits on time and memory resources.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ProcessResourceLimits {
     /// Limit on CPU time available for the child process. `None` if no constraits are set.
     pub cpu_time_limit: Option<Duration>,
@@ -323,6 +327,7 @@ impl ProcessBuilder {
             self.args.push(arg);
             Ok(())
         } else {
+            debug!("Invalid process argument: \"{}\"", arg);
             bail!(ErrorKind::InvalidProcessArgument);
         }
     }
@@ -334,15 +339,19 @@ impl ProcessBuilder {
         let value = value.into();
 
         if !misc::is_valid_c_string(&name) {
+            debug!("Invalid environment variable name: \"{}\": not a valid C string.", name);
             bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if !misc::is_valid_c_string(&value) {
+            debug!("Invalid environment variable value: \"{}\": not a valid C string.", value);
             bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if name.as_bytes().contains(&b'=') {
+            debug!("Invalid environment variable name: \"{}\": contains a equal sign.", name);
             bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if value.as_bytes().contains(&b'=') {
+            debug!("Invalid environment variable value: \"{}\": contains a equal sign.", value);
             bail!(ErrorKind::InvalidEnvironmentVariable);
         }
 
@@ -441,6 +450,8 @@ impl ProcessBuilder {
     fn start_child(mut self) -> Result<()> {
         // TODO: Change the return type of this function to Result<!> after the `!` type stablizes.
 
+        // Notes: No log messages are expected in the child process.
+
         // Build argv and envs into native format.
         let native_file = CString::new(Vec::from(self.file.as_os_str().as_bytes()))
             .unwrap();
@@ -476,6 +487,8 @@ impl ProcessBuilder {
     /// Initializes any necessary components in the parent process to monitor the states of the
     /// child process. This function should be called after `fork` in the parent process.
     fn start_parent(self, child_pid: Pid) -> Process {
+        trace!("Starting parent process daemon...");
+
         let daemon_limits = if self.use_native_rlimit {
             None
         } else {
@@ -512,7 +525,7 @@ impl ProcessBuilder {
 pub type ProcessExitCode = i32;
 
 /// Exit status of a sandboxed process.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ProcessExitStatus {
     /// The process has not exited yet.
     NotExited,
@@ -544,7 +557,7 @@ impl Default for ProcessExitStatus {
 }
 
 /// Resource usage statistics of a sandboxed process.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ProcessResourceUsage {
     /// CPU time spent in user mode.
     pub user_cpu_time: Duration,
@@ -635,6 +648,8 @@ pub struct Process {
 impl Process {
     /// Create a new `Process` instance attaching to the specific process.
     fn attach(pid: Pid, limits: Option<ProcessResourceLimits>) -> Process {
+        trace!("Process::attach to process ID {}", pid.as_raw());
+
         let mut handle = Process {
             pid,
             context: Arc::new(Box::new(ProcessDaemonContext::new(pid, limits))),
@@ -642,6 +657,7 @@ impl Process {
         };
 
         let daemon_handle = daemon::start(handle.context.clone());
+        trace!("Daemon thread started");
         handle.daemon = Some(daemon_handle);
 
         handle

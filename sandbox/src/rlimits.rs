@@ -5,6 +5,7 @@ use libc::rlimit;
 
 /// Represent a resource.
 #[repr(u32)]
+#[derive(Clone, Copy, Debug)]
 pub enum Resource {
     /// Maximum size of the process's virtual memory (address space). This
     /// variant corresponds to the `RLIMIT_AS` native constant.
@@ -16,6 +17,7 @@ pub enum Resource {
 }
 
 /// Specify the soft limit and the hard limit for some resource.
+#[derive(Clone, Copy, Debug)]
 pub struct ResourceLimit {
     /// The soft limit of the resource.
     pub soft_limit: u64,
