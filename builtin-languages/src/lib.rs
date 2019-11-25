@@ -10,6 +10,8 @@
 //! logic for loading contents of this crate into the judge system.
 //!
 
+#[macro_use]
+extern crate log;
 extern crate judge;
 
 mod cxx;
@@ -50,14 +52,29 @@ impl Display for InitLanguageError {
 
 impl std::error::Error for InitLanguageError { }
 
+/// Provide a facade type for language provider initialization functions.
+type BuiltinLanguageProviderInitializer = fn() -> Result<(), InitLanguageError>;
 
 /// This function is called by the judge loader to initialize and load available language providers
 /// in this library.
 pub extern "Rust" fn init_language_providers() -> Result<(), Box<dyn std::error::Error>> {
-    cxx::init_cxx_providers().map_err(|e| e.into_boxed())?;
-    java::init_java_providers().map_err(|e| e.into_boxed())?;
-    py::init_py_providers().map_err(|e| e.into_boxed())?;
-    rust::init_rust_providers().map_err(|e| e.into_boxed())?;
+    let initializers: [(&'static str, BuiltinLanguageProviderInitializer); 4] = [
+        ("cxx", cxx::init_cxx_providers),
+        ("java", java::init_java_providers),
+        ("python", py::init_py_providers),
+        ("rust", rust::init_rust_providers)
+    ];
+
+    for (name, init) in &initializers {
+        info!("Initializing {} language providers...", name);
+        match init() {
+            Ok(..) => (),
+            Err(e) => {
+                error!("Failed to initialize {} language providers: {}", name, e);
+                return Err(e.into_boxed());
+            }
+        }
+    }
 
     Ok(())
 }

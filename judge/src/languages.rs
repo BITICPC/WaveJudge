@@ -5,7 +5,7 @@ pub mod loader;
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Once, RwLock};
 
 use super::{Program, CompilationScheme};
@@ -106,6 +106,7 @@ impl Display for LanguageBranch {
 }
 
 /// Provide metadata about a language provider.
+#[derive(Debug)]
 pub struct LanguageProviderMetadata {
     /// The name of the language. This field corresponds to the first field of a
     /// `LanguageIdentifier`.
@@ -158,6 +159,7 @@ pub trait LanguageProvider : Sync {
 }
 
 /// Represent scheme of an execution.
+#[derive(Clone, Copy, Debug)]
 pub enum ExecutionScheme {
     /// The program to be executed is a judgee.
     Judgee,
@@ -191,6 +193,7 @@ impl LanguageManager {
     /// Get the singleton instance of `LanguageManager` in the application's global scope.
     pub fn singleton() -> Arc<LanguageManager> {
         LANG_MANAGER_ONCE.call_once(|| {
+            trace!("Initializing language manager");
             unsafe {
                 LANG_MANAGER = Some(Arc::new(LanguageManager::new()));
             }
@@ -210,6 +213,8 @@ impl LanguageManager {
         } else {
             lock.insert(metadata.name.clone(), vec![Arc::new(lang_prov)]);
         }
+
+        info!("Language provider for language \"{}\" registered.", metadata.name);
     }
 
     /// Find a `LanguageProvider` instance registered in this `LanguageManager` that is capable of
