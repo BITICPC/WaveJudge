@@ -217,10 +217,14 @@ fn do_main() -> Result<()> {
     };
 
     match matches.subcommand() {
-        ("compile", Some(compile_matches)) => do_compile(compile_matches),
-        ("judge", Some(judge_matches)) => do_judge(judge_matches),
+        ("compile", Some(compile_matches)) => {
+            do_compile(compile_matches)?;
+        },
+        ("judge", Some(judge_matches)) => {
+            do_judge(judge_matches)?;
+        },
         _ => unreachable!()
-    }
+    };
 
     unimplemented!()
 }

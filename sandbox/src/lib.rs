@@ -303,9 +303,9 @@ impl ProcessBuilder {
     /// Create a new `ProcessBuilder` instance, given the executable file's path.
     pub fn new<T>(file: T) -> ProcessBuilder
         where T: Into<PathBuf> {
-        ProcessBuilder {
+        let mut pb = ProcessBuilder {
             file: file.into(),
-            args: Vec::new(),
+            args: Vec::with_capacity(1),
             envs: Vec::new(),
             working_dir: None,
 
@@ -315,7 +315,12 @@ impl ProcessBuilder {
             uid: None,
 
             syscall_whitelist: Vec::new()
-        }
+        };
+
+        // Add the path to the executable file as the first argument to the program.
+        pb.args.push(pb.file.to_str().expect("file path to string failed").to_owned());
+
+        pb
     }
 
     /// Add an argument to the child process. If the given argument is not a valid C-style string,
