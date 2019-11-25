@@ -148,7 +148,10 @@ impl JudgeEngine {
 
     /// Execute the given compilation task.
     pub fn compile(&self, task: CompilationTaskDescriptor) -> Result<CompilationResult> {
+        trace!("Compilation task: {:?}", task);
+
         let compile_info = self.get_compile_info(&task.program, task.scheme, task.output_dir)?;
+        trace!("Compilation info: {:?}", compile_info);
 
         match compile_info {
             Some(info) => self.execute_compiler(info),
@@ -168,7 +171,9 @@ impl JudgeEngine {
         let mut process_handle = process_builder.start()?;
         process_handle.wait_for_exit()?;
 
-        match process_handle.exit_status() {
+        let exit_status = process_handle.exit_status();
+        trace!("Compiler exited with status: {:?}", exit_status);
+        match exit_status {
             ProcessExitStatus::Normal(0) =>
                 Ok(CompilationResult::succeed(compile_info.output_file.clone())),
             _ => {
@@ -202,9 +207,11 @@ impl JudgeEngine {
         let judgee_lang_prov = self.find_language_provider(&task.program.language)?;
 
         // Get execution information of the judgee.
+        trace!("Judge task: {:?}", task);
         let judgee_exec_info = judgee_lang_prov.execute(&task.program, ExecutionScheme::Judgee)
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
             ?;
+        trace!("Judgee execution info: {:?}", judgee_exec_info);
 
         // Create judge context.
         let mut context = match task.mode {
@@ -214,11 +221,13 @@ impl JudgeEngine {
             },
             JudgeMode::SpecialJudge(ref checker) => {
                 let checker_exec_info = self.get_execution_info(checker, ExecutionScheme::Checker)?;
+                trace!("Checker execution info: {:?}", checker_exec_info);
                 JudgeContext::special_judge(&task, judgee_exec_info, checker_exec_info)
             },
             JudgeMode::Interactive(ref interactor) => {
                 let interactor_exec_info = self.get_execution_info(
                     interactor, ExecutionScheme::Interactor)?;
+                trace!("Interactor execution info: {:?}", interactor_exec_info);
                 JudgeContext::interactive(&task, judgee_exec_info, interactor_exec_info)
             }
         };
@@ -230,11 +239,14 @@ impl JudgeEngine {
     /// Execute judge on the given judge context.
     fn judge_on_context(&self, context: &mut JudgeContext) -> Result<()> {
         for test_case in context.task.test_suite.iter() {
+            trace!("Judging on test case {:?}", test_case);
+
             context.test_case = Some(TestCaseContext::new(test_case));
             self.judge_on_test_case(context)?;
 
             context.result.add_test_case_result(context.test_case.take().unwrap().result);
             if !context.result.verdict.is_accepted() {
+                trace!("Judgee failed test case. Stop judging.");
                 break;
             }
         }
@@ -298,6 +310,8 @@ impl JudgeEngine {
             TokenizedReader::new(judgee_output_file.file));
         let checker = context.builtin_checker.unwrap();
         let checker_result = checker(&mut checker_context)?;
+
+        trace!("Result of built-in answer checker: {:?}", checker_result);
 
         test_case.result.comment = checker_result.comment;
         test_case.result.verdict = if checker_result.accepted {
@@ -369,8 +383,13 @@ impl JudgeEngine {
         let mut process = judgee_proc_bdr.start()?;
         process.wait_for_exit()?;
 
-        test_case.result.set_judgee_exit_status(process.exit_status());
-        test_case.result.rusage = process.rusage();
+        let exit_status = process.exit_status();
+        let rusage = process.rusage();
+        trace!("Judgee terminated with status: {:?}", exit_status);
+        trace!("Judgee's resource usage: {:?}", rusage);
+
+        test_case.result.set_judgee_exit_status(exit_status);
+        test_case.result.rusage = rusage;
 
         // Extract data view into the judgee's output and error contents.
         let output_file = &mut test_case.judgee_output_file.as_mut().unwrap().file;
@@ -418,6 +437,9 @@ impl JudgeEngine {
         // Execute the checker.
         let mut checker_proc = checker_bdr.start()?;
         checker_proc.wait_for_exit()?;
+
+        let exit_status = checker_proc.exit_status();
+        trace!("Checker terminated with status: {:?}", exit_status);
 
         // Read contents of the output stream of the checker process.
         checker_output.file.seek(SeekFrom::Start(0))?;

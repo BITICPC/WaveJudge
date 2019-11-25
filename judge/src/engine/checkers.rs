@@ -38,6 +38,7 @@ impl CheckerContext {
 }
 
 /// Represent the result of a checker.
+#[derive(Debug)]
 pub struct CheckerResult {
     /// Can the answer gave by the judgee be accepted?
     pub accepted: bool,

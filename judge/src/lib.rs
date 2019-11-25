@@ -123,7 +123,7 @@ impl CompilationResult {
 }
 
 /// Describe a judge task.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct JudgeTaskDescriptor {
     /// Program to be judged (called the judgee).
     pub program: Program,
