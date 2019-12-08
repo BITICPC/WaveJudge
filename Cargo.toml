@@ -1,2 +1,2 @@
 [workspace]
-members = ["sandbox", "judge", "builtin-languages"]
+members = ["sandbox", "judge", "builtin-languages", "driver"]

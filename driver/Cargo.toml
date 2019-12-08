@@ -1,0 +1,19 @@
+[package]
+name = "wave_judge"
+version = "0.1.0"
+authors = ["Lancern <msrlancern@126.com>"]
+edition = "2018"
+
+[dependencies]
+"log" = "0.4"
+"error-chain" = "0.12"
+"libc" = "0.2"
+"nix" = "0.15"
+"procfs" = "0.7"
+"reqwest" = "0.9"
+"serde" = "1.0"
+"serde_json" = "1.0"
+"clap" = "2.33"
+
+"judge" = { path = "../judge" }
+"sandbox" = { path = "../sandbox" }
