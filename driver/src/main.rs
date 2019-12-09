@@ -6,11 +6,13 @@ extern crate procfs;
 extern crate reqwest;
 extern crate serde;
 extern crate serde_json;
+extern crate zip;
 extern crate clap;
 
 extern crate judge;
 extern crate sandbox;
 
+mod archives;
 mod config;
 mod heartbeat;
 mod restful;
