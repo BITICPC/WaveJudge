@@ -656,7 +656,7 @@ mod tests {
             for tc in metadata.test_cases.iter() {
                 if tc.name == "tc1" {
                     mask |= 1;
-                } else if tc.name == "tc2" {
+                } else if tc.name == "subdir/tc2" {
                     mask |= 2;
                 } else {
                     assert!(false);
