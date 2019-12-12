@@ -14,9 +14,12 @@ extern crate judge;
 extern crate sandbox;
 
 mod archives;
+mod common;
 mod config;
+mod forkserver;
 mod heartbeat;
 mod restful;
+mod problems;
 mod utils;
 
 error_chain::error_chain! {
