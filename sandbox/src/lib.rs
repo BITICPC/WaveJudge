@@ -22,6 +22,9 @@ extern crate nix;
 extern crate seccomp_sys;
 extern crate procinfo;
 
+#[cfg(feature = "serde")]
+extern crate serde;
+
 
 mod daemon;
 mod seccomp;
@@ -41,6 +44,9 @@ use std::os::unix::io::AsRawFd;
 
 use nix::sys::signal::Signal;
 use nix::unistd::{Uid, Pid, ForkResult};
+
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
 
 use daemon::{ProcessDaemonContext, DaemonThreadJoinHandle};
 use rlimits::Resource;
@@ -82,6 +88,7 @@ error_chain! {
 
 /// Measurement of the size of a block of memory.
 #[derive(Clone, Copy, Debug, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum MemorySize {
     /// Measurement in bytes.
     Bytes(usize),
@@ -153,6 +160,7 @@ pub type SystemCallId = i32;
 
 /// Represent a system call.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SystemCall {
     /// The name of the system call.
     pub name: String,
@@ -203,6 +211,7 @@ impl PartialEq for SystemCall {
 
 /// Specify limits on time and memory resources.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ProcessResourceLimits {
     /// Limit on CPU time available for the child process. `None` if no constraits are set.
     pub cpu_time_limit: Option<Duration>,
@@ -531,6 +540,7 @@ pub type ProcessExitCode = i32;
 
 /// Exit status of a sandboxed process.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ProcessExitStatus {
     /// The process has not exited yet.
     NotExited,
@@ -539,7 +549,7 @@ pub enum ProcessExitStatus {
     Normal(ProcessExitCode),
 
     /// The process was killed by the delivery of a signal.
-    KilledBySignal(Signal),
+    KilledBySignal(i32),
 
     /// The process was killed by the daemon due to CPU time limit.
     CPUTimeLimitExceeded,
@@ -563,6 +573,7 @@ impl Default for ProcessExitStatus {
 
 /// Resource usage statistics of a sandboxed process.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ProcessResourceUsage {
     /// CPU time spent in user mode.
     pub user_cpu_time: Duration,

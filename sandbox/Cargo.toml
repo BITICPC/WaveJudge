@@ -16,3 +16,6 @@ edition = "2018"
 
 # The following dependency is used in `sandbox-bin` binary.
 "clap" = "2.33"
+
+# serde dependency is optional unless the `serde` feature is set.
+"serde" = { version = "1.0", optional = true }

@@ -10,12 +10,18 @@ extern crate nix;
 extern crate sandbox;
 extern crate libloading;
 
+#[cfg(feature = "serde")]
+extern crate serde;
+
 pub mod engine;
 pub mod languages;
 
 use std::ops::{BitAnd, BitAndAssign};
 use std::path::PathBuf;
 use std::time::Duration;
+
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
 
 use sandbox::{MemorySize, ProcessResourceUsage, ProcessExitStatus};
 
@@ -52,6 +58,7 @@ error_chain! {
 
 /// Describe a compilation task.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CompilationTaskDescriptor {
     /// The program to be compiled.
     pub program: Program,
@@ -76,6 +83,7 @@ impl CompilationTaskDescriptor {
 
 /// Represent the scheme of a compilation job.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum CompilationScheme {
     /// The program to be compiled is a judgee.
     Judgee,
@@ -89,6 +97,7 @@ pub enum CompilationScheme {
 
 /// Represent the result of a compilation job.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CompilationResult {
     /// Is the compilation job successful?
     pub succeeded: bool,
@@ -124,6 +133,7 @@ impl CompilationResult {
 
 /// Describe a judge task.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct JudgeTaskDescriptor {
     /// Program to be judged (called the judgee).
     pub program: Program,
@@ -154,6 +164,7 @@ impl JudgeTaskDescriptor {
 /// Represent a program stored in local disk file, along with the corresponding language
 /// environment. The program file may either be a source file or an executable file.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Program {
     /// Path to the program file.
     pub file: PathBuf,
@@ -164,6 +175,7 @@ pub struct Program {
 
 /// Resource limits that should be applied to the judgee when executing judge.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ResourceLimits {
     /// CPU time limit.
     pub cpu_time_limit: Duration,
@@ -187,6 +199,7 @@ impl Default for ResourceLimits {
 
 /// Represent built-in answer checkers used in standard judge mode.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum BuiltinCheckers {
     /// The default built-in checker.
     Default,
@@ -206,6 +219,7 @@ impl Default for BuiltinCheckers {
 
 /// The judge mode.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum JudgeMode {
     /// Standard judge mode. The input of the judgee is redirected to the input file of each test
     /// case, and the output of the judgee is compared against the answer file of corresponding test
@@ -233,6 +247,7 @@ impl Default for JudgeMode {
 
 /// Describe a test case.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TestCaseDescriptor {
     /// Path to the input file.
     pub input_file: PathBuf,
@@ -243,6 +258,7 @@ pub struct TestCaseDescriptor {
 
 /// Result of a judge task.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct JudgeResult {
     /// Overall verdict of the judge task.
     pub verdict: Verdict,
@@ -292,6 +308,7 @@ impl Default for JudgeResult {
 
 /// Result of a judge task on a specific test case.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TestCaseResult {
     /// Verdict of the test case.
     pub verdict: Verdict,
@@ -360,6 +377,7 @@ impl TestCaseResult {
 
 /// Verdict of the judge.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Verdict {
     /// The judgee accepted all test cases in the test suite.
     Accepted,

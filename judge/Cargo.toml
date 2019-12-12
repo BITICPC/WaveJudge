@@ -16,3 +16,5 @@ edition = "2018"
 
 # The following dependency is used in the `judge-bin` binary.
 "clap" = "2.33"
+
+"serde" = { version = "1.0", optional = true }

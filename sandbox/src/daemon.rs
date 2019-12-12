@@ -170,7 +170,7 @@ fn daemon_main(context: &ProcessDaemonContext) -> Result<ProcessExitStatus> {
             WaitStatus::Signaled(_, Signal::SIGUSR1, _) =>
                 return Err(Error::from(ErrorKind::ChildStartupFailed)),
             WaitStatus::Signaled(_, sig, _) =>
-                return Ok(ProcessExitStatus::KilledBySignal(sig)),
+                return Ok(ProcessExitStatus::KilledBySignal(sig as i32)),
             _ => ()
         };
 

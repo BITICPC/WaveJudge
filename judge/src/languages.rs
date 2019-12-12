@@ -8,6 +8,9 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::sync::{Arc, Once, RwLock};
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
 use super::{Program, CompilationScheme};
 use super::engine::{CompilationInfo, ExecutionInfo};
 
@@ -26,6 +29,7 @@ use super::engine::{CompilationInfo, ExecutionInfo};
 /// provider will be selected by this language identifier, and the language provider will choose to
 /// use `clang` compiler toolchains to compile source code with C++11 features available.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LanguageIdentifier(String, LanguageBranch);
 
 impl LanguageIdentifier {
@@ -73,6 +77,7 @@ impl Display for LanguageIdentifier {
 /// A branch of a language is a 2-tuple (String, String) whose first field represents the dialect of
 /// the language and second field represents the version of the language.
 #[derive(Clone, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LanguageBranch(String, String);
 
 impl LanguageBranch {
@@ -107,6 +112,7 @@ impl Display for LanguageBranch {
 
 /// Provide metadata about a language provider.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LanguageProviderMetadata {
     /// The name of the language. This field corresponds to the first field of a
     /// `LanguageIdentifier`.
@@ -160,6 +166,7 @@ pub trait LanguageProvider : Sync {
 
 /// Represent scheme of an execution.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ExecutionScheme {
     /// The program to be executed is a judgee.
     Judgee,

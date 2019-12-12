@@ -13,6 +13,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
 use sandbox::{
     MemorySize,
     UserId,
@@ -52,6 +55,7 @@ use io::{
 
 /// Configuration for a judge engine instance.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct JudgeEngineConfig {
     /// The effective user ID of the judgee, answer checker and interactor.
     pub judge_uid: Option<UserId>,
@@ -605,6 +609,7 @@ trait Executable {
 
 /// Provide necessary information to execute a program.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ExecutionInfo {
     /// Path to the executable file to be executed.
     pub executable: PathBuf,
@@ -644,6 +649,7 @@ impl Executable for ExecutionInfo {
 
 /// Provide necessary information to compile a source program.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CompilationInfo {
     /// Information necessary to execute the compiler instance.
     pub compiler: ExecutionInfo,

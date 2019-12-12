@@ -4,6 +4,9 @@
 use std::fs::File;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
 use crate::BuiltinCheckers;
 use super::io::{TokenizedRead, TokenizedReader};
 
@@ -39,6 +42,7 @@ impl CheckerContext {
 
 /// Represent the result of a checker.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CheckerResult {
     /// Can the answer gave by the judgee be accepted?
     pub accepted: bool,
