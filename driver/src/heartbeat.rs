@@ -102,6 +102,8 @@ impl Heartbeat {
     }
 }
 
+impl crate::restful::Heartbeat for Heartbeat { }
+
 /// The minimal number of seconds between two adjacent heartbeat packets.
 const MIN_HEARTBEAT_INTERVAL: u32 = 3;
 
@@ -122,7 +124,7 @@ fn heartbeat_daemon_entry() {
             }
         };
 
-        match crate::restful::patch("/judges", &heartbeat) {
+        match crate::restful::patch_heartbeat(&heartbeat) {
             Ok(..) => (),
             Err(e) => log::error!("failed to send heartbeat packet: {}", e)
         };

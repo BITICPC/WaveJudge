@@ -2,9 +2,12 @@
 //! judge board server's REST APIs.
 //!
 
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
 use std::sync::Once;
 
-use reqwest::{Client as HttpClient, Url};
+use reqwest::{Client as HttpClient, Response, Url};
 use serde::Serialize;
 
 error_chain::error_chain! {
@@ -13,6 +16,7 @@ error_chain::error_chain! {
     }
 
     foreign_links {
+        IoError(::std::io::Error);
         SerdeJsonError(::serde_json::Error);
         ReqwestUrlError(::reqwest::UrlError);
         ReqwestError(::reqwest::Error);
@@ -47,14 +51,46 @@ fn with_http_client<F, R>(func: F) -> Result<R>
     }
 }
 
-pub fn patch<T, U>(path: T, payload: &U) -> Result<()>
-    where T: AsRef<str>, U: ?Sized + Serialize {
+/// Get full request URL to the judge board server. The given path should be an absolute path that
+/// can be concatenated after the host part of the URL, e.g. `/judges`.
+fn get_full_request_url<T>(path: T) -> Result<reqwest::Url>
+    where T: AsRef<str> {
     let config = crate::config::app_config();
     let full_path_str = format!("{}{}", config.judge_board_url, path.as_ref());
-    let full_path = Url::parse(&full_path_str)?;
+    Url::parse(&full_path_str)
+        .map_err(|e| Error::from(e))
+}
+
+/// Send a GET request to the judge board server.
+fn get<T>(path: T) -> Result<Response>
+    where T: AsRef<str> {
+    let request_url = get_full_request_url(path)?;
+
+    with_http_client(|http| {
+        http.get(request_url)
+            .send()
+            .map_err(|e| Error::from(e))
+    })?
+}
+
+/// Send a GET request to the judge board server, saving the content of the response to the given
+/// output device.
+fn download<T1, T2>(path: T1, output: &mut T2) -> Result<()>
+    where T1: AsRef<str>, T2: ?Sized + Write {
+    let mut response = get(path)?;
+    std::io::copy(&mut response, output)?;
+
+    Ok(())
+}
+
+/// Send a PATCH request to the judge board server, requesting the given path. The body of the
+/// request will be populated by the payload in JSON format.
+fn patch<T, U>(path: T, payload: &U) -> Result<()>
+    where T: AsRef<str>, U: ?Sized + Serialize {
+    let request_url = get_full_request_url(path)?;
 
     let response = with_http_client(|http| {
-        http.patch(full_path)
+        http.patch(request_url)
             .json(payload)
             .send()
     })??;
@@ -65,4 +101,20 @@ pub fn patch<T, U>(path: T, payload: &U) -> Result<()>
     } else {
         Err(Error::from(ErrorKind::NonSuccessfulStatusCode(status.as_u16())))
     }
+}
+
+/// Provide a trait for heartbeat values.
+pub trait Heartbeat : Serialize { }
+
+/// Send a heartbeat packet to the judge board.
+pub fn patch_heartbeat<H>(hb: &H) -> Result<()>
+    where H: Heartbeat {
+    patch("/judges", hb)
+}
+
+/// Download the given test archive and save to the given output device.
+pub fn download_archive<T1, T2>(archive_id: T1, output: &mut T2) -> Result<()>
+    where T1: ToString, T2: ?Sized + Write {
+    let path = format!("/archives/{}", archive_id.to_string());
+    download(path, output)
 }

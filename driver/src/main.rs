@@ -7,6 +7,7 @@ extern crate reqwest;
 extern crate serde;
 extern crate serde_json;
 extern crate zip;
+extern crate tempfile;
 extern crate clap;
 
 extern crate judge;

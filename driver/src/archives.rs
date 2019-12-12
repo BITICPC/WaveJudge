@@ -3,10 +3,14 @@
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::hash::Hash;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::string::ToString;
+use std::sync::Once;
 
 use serde::{Serialize, Deserialize};
 use zip::ZipArchive;
@@ -17,9 +21,14 @@ error_chain::error_chain! {
         Error, ErrorKind, ResultExt, Result;
     }
 
+    links {
+        Restful(crate::restful::Error, crate::restful::ErrorKind);
+    }
+
     foreign_links {
         IoError(::std::io::Error);
         ZipError(::zip::result::ZipError);
+        SerdeJsonError(::serde_json::Error);
     }
 
     errors {
@@ -62,6 +71,9 @@ impl Display for TestArchiveCorruption {
     }
 }
 
+const INPUT_FILE_EXTENSION: &'static str = "in";
+const ANSWER_FILE_EXTENSION: &'static str = "ans";
+
 /// Represent the kind of an entry in the test archive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TestArchiveEntryKind {
@@ -73,34 +85,12 @@ enum TestArchiveEntryKind {
 
     /// The entry represents an answer file.
     AnswerFile,
-
-    /// The entry represents the checker file.
-    CheckerFile,
-
-    /// The entry represents the interactor file.
-    InteractorFile,
 }
 
 impl TestArchiveEntryKind {
     /// Get the kind of the given entry.
     fn get_kind<'a, 'b>(entry: &'a ZipFile<'b>) -> Self {
-        const INPUT_FILE_EXTENSION: &'static str = "in";
-        const ANSWER_FILE_EXTENSION: &'static str = "ans";
-        const CHECKER_FILE_STEM: &'static str = "checker";
-        const INTERACTOR_FILE_STEM: &'static str = "interactor";
-
         let entry_name = entry.sanitized_name();
-        if entry_name.file_stem()
-            .and_then(|stem| Some(stem == CHECKER_FILE_STEM))
-            .unwrap_or(false) {
-            return TestArchiveEntryKind::CheckerFile;
-        }
-        if entry_name.file_stem()
-            .and_then(|stem| Some(stem == INTERACTOR_FILE_STEM))
-            .unwrap_or(false) {
-            return TestArchiveEntryKind::InteractorFile;
-        }
-
         if entry_name.extension()
             .and_then(|ext| Some(ext == INPUT_FILE_EXTENSION))
             .unwrap_or(false) {
@@ -143,41 +133,45 @@ impl<'a> PathExt for &'a Path {
 
 /// Provide metadata about a test case in the test archive.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TestCaseEntry {
-    /// Path of the input file in the test archive, relative to the root of the archive.
-    #[serde(rename = "input_file_name")]
-    pub input_file_name: PathBuf,
-
-    /// Path of the answer file in the test archive, relative to the root of the archive.
-    #[serde(rename = "answer_file_name")]
-    pub answer_file_name: PathBuf
+struct TestCaseEntry {
+    /// The name of the test case. The name of a test case is the portion of its file path before
+    /// the extension, which should be identical to the input file and the answer file.
+    ///
+    /// For example, the name of the test case whose input file is "path/to/test.in" and answer
+    /// file is "path/to/test.ans" is "path/to/test".
+    name: String,
 }
 
 impl TestCaseEntry {
     /// Create a new `TestCaseEntry` value.
-    fn new<T1, T2>(input_file_name: T1, answer_file_name: T2) -> Self
-        where T1: Into<PathBuf>, T2: Into<PathBuf> {
+    fn new<T>(name: T) -> Self
+        where T: ToString {
         TestCaseEntry {
-            input_file_name: input_file_name.into(),
-            answer_file_name: answer_file_name.into()
+            name: name.to_string()
         }
+    }
+
+    /// Get the path to the input file of this test case.
+    fn input_file_path(&self) -> PathBuf {
+        let mut p = PathBuf::from_str(&self.name).unwrap();
+        p.set_extension(INPUT_FILE_EXTENSION);
+        p
+    }
+
+    /// Get the path to the answer file of this test case.
+    fn answer_file_path(&self) -> PathBuf {
+        let mut p = PathBuf::from_str(&self.name).unwrap();
+        p.set_extension(ANSWER_FILE_EXTENSION);
+        p
     }
 }
 
 /// Provide metadata about a test archive.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TestArchiveMetadata {
-    /// Path of the checker source file, relative to the root of the archive.
-    #[serde(rename = "checker_file_name")]
-    pub checker_file_name: Option<PathBuf>,
-
-    /// Path of the interactor source file, relative to the root of the archive.
-    #[serde(rename = "interactor_file_name")]
-    pub interactor_file_name: Option<PathBuf>,
-
+struct TestArchiveMetadata {
     /// Test cases contained in the archive.
     #[serde(rename = "test_cases")]
-    pub test_cases: Vec<TestCaseEntry>,
+    test_cases: Vec<TestCaseEntry>,
 }
 
 impl<'a, R> TryFrom<&'a mut ZipArchive<R>> for TestArchiveMetadata
@@ -204,12 +198,6 @@ impl<'a, R> TryFrom<&'a mut ZipArchive<R>> for TestArchiveMetadata
                 TestArchiveEntryKind::AnswerFile => {
                     builder.add_answer_file(archive_file_path);
                 },
-                TestArchiveEntryKind::CheckerFile => {
-                    builder.set_checker_file(archive_file_path)?;
-                },
-                TestArchiveEntryKind::InteractorFile => {
-                    builder.set_interactor_file(archive_file_path)?;
-                },
             }
         }
 
@@ -219,12 +207,6 @@ impl<'a, R> TryFrom<&'a mut ZipArchive<R>> for TestArchiveMetadata
 
 /// Implement a builder for `TestArchiveMetadata`.
 struct TestArchiveMetadataBuilder {
-    /// The checker file.
-    checker_file: Option<PathBuf>,
-
-    /// The interactor file.
-    interactor_file: Option<PathBuf>,
-
     /// The test cases maintained.
     test_cases: HashMap<String, (Option<PathBuf>, Option<PathBuf>)>,
 }
@@ -233,39 +215,8 @@ impl TestArchiveMetadataBuilder {
     /// Create a new `TestArchiveMetadataBuilder` instance.
     fn new() -> Self {
         TestArchiveMetadataBuilder {
-            checker_file: None,
-            interactor_file: None,
             test_cases: HashMap::new(),
         }
-    }
-
-    /// Checks that neither `self.checker_file` nor `self.interactor_file` is `Some(..)`. Returns
-    /// `Err` if not satisfied.
-    fn ensure_no_checker_or_interactor(&self) -> Result<()> {
-        if !self.checker_file.is_none() || !self.interactor_file.is_none() {
-            return Err(Error::from(
-                ErrorKind::BadTestArchive(TestArchiveCorruption::RedundantCheckerOrInteractor)));
-        }
-
-        Ok(())
-    }
-
-    /// Set the path to the checker file. This function returns `Err` if either a checker or an
-    /// interactor has already been set.
-    fn set_checker_file<T>(&mut self, checker_file: T) -> Result<()>
-        where T: Into<PathBuf> {
-        self.ensure_no_checker_or_interactor()?;
-        self.checker_file = Some(checker_file.into());
-        Ok(())
-    }
-
-    /// Set the path to the interactor file. This function returns `Err` if either a checker or an
-    /// interactor has already been set.
-    fn set_interactor_file<T>(&mut self, interactor_file: T) -> Result<()>
-        where T: Into<PathBuf> {
-        self.ensure_no_checker_or_interactor()?;
-        self.interactor_file = Some(interactor_file.into());
-        Ok(())
     }
 
     /// Add an input file to the metadata.
@@ -324,10 +275,8 @@ impl TestArchiveMetadataBuilder {
         self.ensure_test_cases_integrity()?;
 
         Ok(TestArchiveMetadata {
-            checker_file_name: self.checker_file,
-            interactor_file_name: self.interactor_file,
             test_cases: self.test_cases.into_iter()
-                .map(|tc| TestCaseEntry::new((tc.1).0.unwrap(), (tc.1).1.unwrap()))
+                .map(|tc| TestCaseEntry::new(tc.0))
                 .collect()
         })
     }
@@ -335,32 +284,299 @@ impl TestArchiveMetadataBuilder {
 
 /// Provide information about a test archive.
 #[derive(Debug)]
-pub struct TestArchive<R>
+struct TestArchive<R>
     where R: Read + Seek {
     /// The `ZipArchive` representation about the test archive.
     archive: ZipArchive<R>,
 
     /// The metadata about the archive.
-    pub metadata: TestArchiveMetadata,
+    metadata: TestArchiveMetadata,
 }
 
 impl<R> TestArchive<R>
     where R: Read + Seek {
     /// Create a new `TestArchive` value from the given zip archive.
-    pub fn new(mut archive: ZipArchive<R>) -> Result<Self> {
+    fn new(mut archive: ZipArchive<R>) -> Result<Self> {
         let metadata = TestArchiveMetadata::try_from(&mut archive)?;
         Ok(TestArchive { archive, metadata })
+    }
+
+    /// Create a new `TestArchive` value from the given `Read` object.
+    fn new_from_read(source: R) -> Result<Self> {
+        TestArchive::new(ZipArchive::new(source)?)
     }
 }
 
 impl TestArchive<File> {
     /// Create a new `TestArchive` value from the given file. The file should be a valid zip
     /// archive.
-    pub fn from_file<T>(path: T) -> Result<Self>
+    fn from_file<T>(path: T) -> Result<Self>
         where T: AsRef<Path> {
         let file = File::open(path)?;
         let archive = ZipArchive::new(file)?;
         TestArchive::new(archive)
+    }
+}
+
+/// Represent a 12-byte identifier used by BSON and MongoDB.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ObjectId {
+    /// Raw data of object IDs.
+    data: [u8; 12]
+}
+
+impl FromStr for ObjectId {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        if s.len() != 24 {
+            return Err(());
+        }
+
+        let mut id = ObjectId { data: [0u8; 12] };
+        for i in (0..12usize).map(|x| x * 2) {
+            id.data[i / 2] = u8::from_str_radix(&s[i..i + 2], 16)
+                .map_err(|_| ())
+                ?;
+        }
+
+        Ok(id)
+    }
+}
+
+impl Display for ObjectId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for d in &self.data {
+            f.write_fmt(format_args!("{:02x}", *d))?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Provide a trait for types whose contents can be extracted into a specific directory.
+trait Extractable {
+    /// The error type returned from extract operation on this type.
+    type Error;
+
+    /// Extract the contents of the `ZipArchive` into the specified directory.
+    fn extract_into<P>(&mut self, dir: P) -> std::result::Result<(), Self::Error>
+        where P: AsRef<Path>;
+}
+
+impl<R> Extractable for ZipArchive<R>
+    where R: Seek + Read {
+    type Error = Error;
+
+    fn extract_into<P>(&mut self, dir: P) -> std::result::Result<(), Self::Error>
+        where P: AsRef<Path> {
+        let num_files = self.len();
+        for i in 0..num_files {
+            let mut archive_file = self.by_index(i)?;
+
+            let mut archive_file_path = dir.as_ref().to_owned();
+            archive_file_path.push(archive_file.sanitized_name());
+            let mut output_file = File::create(&archive_file_path)?;
+
+            std::io::copy(&mut archive_file, &mut output_file)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<R> Extractable for TestArchive<R>
+    where R: Seek + Read {
+    type Error = Error;
+
+    fn extract_into<P>(&mut self, dir: P) -> std::result::Result<(), Self::Error>
+        where P: AsRef<Path> {
+        self.archive.extract_into(dir)
+    }
+}
+
+/// Provide an interator over a test archive represented by `TestArchiveHandle`.
+pub struct TestArchiveEntryIterator<'a> {
+    handle: &'a TestArchiveHandle,
+    inner: std::slice::Iter<'a, TestCaseEntry>
+}
+
+impl<'a> TestArchiveEntryIterator<'a> {
+    /// Create a new `TestArchiveEntryIterator` value that iterates the test cases in the test archive
+    /// represented by the given `TestArchiveHandle` value.
+    pub fn new(handle: &'a TestArchiveHandle) -> Self {
+        TestArchiveEntryIterator {
+            handle,
+            inner: handle.metadata.test_cases.iter()
+        }
+    }
+}
+
+impl<'a> Iterator for TestArchiveEntryIterator<'a> {
+    type Item = TestCaseInfo<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|entry| TestCaseInfo::new(self.handle, entry))
+    }
+}
+
+/// Provide access to a saved test archive.
+pub struct TestArchiveHandle {
+    /// The directory in which the contents of the test archive are saved.
+    dir: PathBuf,
+
+    /// The metadata of the test archive.
+    metadata: TestArchiveMetadata,
+}
+
+impl TestArchiveHandle {
+    /// Create a new `TestArchiveHandle` value representing the test archive residing in the
+    /// specific directory.
+    fn new<P1, P2>(dir: P1, metadata_file_path: P2) -> Result<Self>
+        where P1: AsRef<Path>, P2: AsRef<Path> {
+        let mut metadata_file = File::open(&metadata_file_path)?;
+        let metadata: TestArchiveMetadata = serde_json::from_reader(&mut metadata_file)?;
+
+        Ok(TestArchiveHandle {
+            dir: dir.as_ref().to_owned(),
+            metadata
+        })
+    }
+
+    /// Get an iterator over the test cases contained in this test archive.
+    pub fn test_cases<'a>(&'a self) -> TestArchiveEntryIterator<'a> {
+        TestArchiveEntryIterator::new(self)
+    }
+}
+
+/// Represent a test case in a test archive.
+pub struct TestCaseInfo<'a> {
+    /// The handle to the test archive containing this test case.
+    handle: &'a TestArchiveHandle,
+
+    /// The test case entry in the test archive.
+    test_case_entry: &'a TestCaseEntry,
+}
+
+impl<'a> TestCaseInfo<'a> {
+    /// Create a new `TestCaseInfo` value.
+    fn new(handle: &'a TestArchiveHandle, test_case_entry: &'a TestCaseEntry) -> Self {
+        TestCaseInfo { handle, test_case_entry }
+    }
+
+    /// Get the path to the input file of this test case.
+    pub fn input_file_path(&self) -> PathBuf {
+        let mut p = self.handle.dir.clone();
+        p.push(self.test_case_entry.input_file_path());
+        p
+    }
+
+    /// Get the path to the answer file of this test case.
+    pub fn answer_file_path(&self) -> PathBuf {
+        let mut p = self.handle.dir.clone();
+        p.push(self.test_case_entry.answer_file_path());
+        p
+    }
+
+    /// Open the input file of this test case.
+    pub fn open_input_file(&self) -> std::io::Result<File> {
+        File::open(&self.input_file_path())
+    }
+
+    /// Open the answer file of this test case.
+    pub fn open_answer_file(&self) -> std::io::Result<File> {
+        File::open(&self.answer_file_path())
+    }
+}
+
+/// Provide access to local archive store.
+pub struct ArchiveStore {
+    /// The root directory of the archive store on the local disk.
+    root_dir: PathBuf,
+}
+
+static mut SINGLETON: Option<ArchiveStore> = None;
+static SINGLETON_ONCE: Once = Once::new();
+
+impl ArchiveStore {
+    /// Initialize the singleton `ArchiveStore` object.
+    pub fn init() {
+        SINGLETON_ONCE.call_once(|| {
+            let config = crate::config::app_config();
+            let archive_root_dir = config.archive_dir.clone();
+            unsafe {
+                SINGLETON = Some(ArchiveStore {
+                    root_dir: archive_root_dir
+                });
+            }
+        });
+    }
+
+    /// Get the directory containing the content of the archive with the specified ID.
+    fn get_archive_dir(&self, id: ObjectId) -> PathBuf {
+        let mut dir = self.root_dir.clone();
+        dir.push(id.to_string());
+        dir
+    }
+
+    /// Get the path of the metadata file inside the speicified archive directory.
+    fn get_metadata_file_path<P>(&self, archive_dir: P) -> PathBuf
+        where P: AsRef<Path> {
+        let mut path = archive_dir.as_ref().to_owned();
+        path.push("metadata.json");
+        path
+    }
+
+    /// Extract the content of the given test archive into the specified directory.
+    fn extract_archive<R, T>(&self, mut archive: TestArchive<R>, archive_dir: T) -> Result<()>
+        where R: Seek + Read, T: AsRef<Path> {
+        let archive_metadata = &archive.metadata;
+        log::debug!("Archive metadata extracted: {:?}", archive_metadata);
+
+        // Create the archive directory.
+        let archive_dir = archive_dir.as_ref();
+        std::fs::create_dir_all(archive_dir)?;
+
+        // Save the metadata to file: ${archive_dir}/metadata.json
+        let metadata_file_path = self.get_metadata_file_path(archive_dir);
+        let mut metadata_file = File::create(&metadata_file_path)?;
+        serde_json::to_writer(&mut metadata_file, archive_metadata)?;
+        drop(metadata_file);
+
+        // Extract the contents of the test archive into the archive directory.
+        archive.extract_into(archive_dir)?;
+
+        Ok(())
+    }
+
+    /// Download the specified test archive, verify and extract to the specified archive directory.
+    fn download_archive<T>(&self, id: ObjectId, archive_dir: T) -> Result<()>
+        where T: AsRef<Path> {
+        // Create a temporary file and download the test archive from the judge board server.
+        log::info!("Downloading archive {}", id);
+        let mut archive_file = tempfile::tempfile()?;
+        crate::restful::download_archive(id, &mut archive_file)?;
+
+        log::info!("Verifying archive {}", id);
+        archive_file.seek(SeekFrom::Start(0))?;
+        let archive = TestArchive::new_from_read(archive_file)?;
+
+        let archive_dir = archive_dir.as_ref();
+        log::info!("Extracting archive {} into {}", id, archive_dir.display());
+        self.extract_archive(archive, archive_dir)
+    }
+
+    /// Get archive with the given ID. If the archive does not exist on the local disk, this
+    /// function will request the judge board to download it. This function will not return until
+    /// the archive is ready or something goes wrong.
+    pub fn get_archive(&self, id: ObjectId) -> Result<TestArchiveHandle> {
+        let archive_dir = self.get_archive_dir(id);
+        if !archive_dir.exists() {
+            self.download_archive(id, &archive_dir)?;
+        }
+
+        let metadata_file_path = self.get_metadata_file_path(&archive_dir);
+        TestArchiveHandle::new(&archive_dir, &metadata_file_path)
     }
 }
 
@@ -414,52 +630,6 @@ mod tests {
         use super::*;
 
         #[test]
-        fn set_checker_file_ok() {
-            let mut builder = TestArchiveMetadataBuilder::new();
-            assert!(builder.set_checker_file("path/to/checker").is_ok());
-
-            let metadata = builder.get_metadata().unwrap();
-            assert_eq!(PathBuf::from("path/to/checker"), metadata.checker_file_name.unwrap());
-        }
-
-        #[test]
-        fn set_checker_file_dup_checker() {
-            let mut builder = TestArchiveMetadataBuilder::new();
-            builder.set_checker_file("path/to/checker").unwrap();
-            assert!(builder.set_checker_file("path/to/checker").is_err());
-        }
-
-        #[test]
-        fn set_checker_file_dup_interactor() {
-            let mut builder = TestArchiveMetadataBuilder::new();
-            builder.set_interactor_file("path/to/interactor").unwrap();
-            assert!(builder.set_checker_file("path/to/checker").is_err());
-        }
-
-        #[test]
-        fn set_interactor_ok() {
-            let mut builder = TestArchiveMetadataBuilder::new();
-            assert!(builder.set_interactor_file("path/to/interactor").is_ok());
-
-            let metadata = builder.get_metadata().unwrap();
-            assert_eq!(PathBuf::from("path/to/interactor"), metadata.interactor_file_name.unwrap());
-        }
-
-        #[test]
-        fn set_interactor_dup_checker() {
-            let mut builder = TestArchiveMetadataBuilder::new();
-            builder.set_checker_file("path/to/checker").unwrap();
-            assert!(builder.set_interactor_file("path/to/interactor").is_err());
-        }
-
-        #[test]
-        fn set_interactor_dup_interactor() {
-            let mut builder = TestArchiveMetadataBuilder::new();
-            builder.set_interactor_file("path/to/interactor").unwrap();
-            assert!(builder.set_interactor_file("path/to/interactor").is_err());
-        }
-
-        #[test]
         fn miss_input_file() {
             let mut builder = TestArchiveMetadataBuilder::new();
             builder.add_answer_file("path/to/answer.ans");
@@ -476,30 +646,50 @@ mod tests {
         #[test]
         fn normal() {
             let mut builder = TestArchiveMetadataBuilder::new();
-            builder.set_checker_file("checker.cpp").unwrap();
             builder.add_input_file("tc1.in");
             builder.add_answer_file("tc1.ans");
             builder.add_input_file("subdir/tc2.in");
             builder.add_answer_file("subdir/tc2.ans");
             let metadata = builder.get_metadata().unwrap();
 
-            assert_eq!(PathBuf::from("checker.cpp"), metadata.checker_file_name.unwrap());
-            assert!(metadata.interactor_file_name.is_none());
-
             let mut mask = 0u32;
             for tc in metadata.test_cases.iter() {
-                if tc.input_file_name == PathBuf::from("tc1.in") {
-                    mask |= 1u32;
-                    assert_eq!(PathBuf::from("tc1.ans"), tc.answer_file_name);
-                } else if tc.input_file_name == PathBuf::from("subdir/tc2.in") {
-                    mask |= 2u32;
-                    assert_eq!(PathBuf::from("subdir/tc2.ans"), tc.answer_file_name);
+                if tc.name == "tc1" {
+                    mask |= 1;
+                } else if tc.name == "tc2" {
+                    mask |= 2;
                 } else {
                     assert!(false);
                 }
             }
 
             assert_eq!(3, mask);
+        }
+    }
+
+    mod object_id {
+        use super::*;
+
+        #[test]
+        fn from_str_invalid() {
+            assert!(ObjectId::from_str("abca").is_err());
+            assert!(ObjectId::from_str("17325193026584935r292324").is_err());
+        }
+
+        #[test]
+        fn from_str_ok() {
+            let example = ObjectId {
+                data: [ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67 ]
+            };
+            assert_eq!(example, ObjectId::from_str("0123456789aBcDeF01234567").unwrap());
+        }
+
+        #[test]
+        fn format() {
+            let example = ObjectId {
+                data: [ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67 ]
+            };
+            assert_eq!("0123456789abcdef01234567", format!("{}", example));
         }
     }
 }
