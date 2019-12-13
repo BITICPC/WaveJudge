@@ -6,6 +6,8 @@ extern crate procfs;
 extern crate reqwest;
 extern crate serde;
 extern crate serde_json;
+extern crate serde_yaml;
+extern crate rmp_serde;
 extern crate zip;
 extern crate tempfile;
 extern crate clap;
@@ -29,7 +31,7 @@ error_chain::error_chain! {
 
     foreign_links {
         IoError(::std::io::Error);
-        SerdeJsonError(::serde_json::Error);
+        SerdeYamlError(::serde_yaml::Error);
     }
 
     errors {

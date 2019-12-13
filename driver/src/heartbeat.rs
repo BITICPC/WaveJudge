@@ -111,7 +111,7 @@ const MIN_HEARTBEAT_INTERVAL: u32 = 3;
 fn heartbeat_daemon_entry() {
     let config = crate::config::app_config();
     let heartbeat_interval = Duration::from_secs(
-        *crate::utils::max(&config.heartbeat_interval, &MIN_HEARTBEAT_INTERVAL) as u64);
+        *crate::utils::max(&config.cluster.heartbeat_interval, &MIN_HEARTBEAT_INTERVAL) as u64);
 
     loop {
         std::thread::sleep(heartbeat_interval);

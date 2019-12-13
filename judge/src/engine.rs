@@ -60,32 +60,23 @@ pub struct JudgeEngineConfig {
     /// The effective user ID of the judgee, answer checker and interactor.
     pub judge_uid: Option<UserId>,
 
+    /// The directory inside which the judge task will be executed.
+    pub judge_dir: Option<PathBuf>,
+
     /// System call whitelist for the judgee process.
     pub judgee_syscall_whitelist: Vec<SystemCall>,
 
-    /// CPU time limit of answer checkers.
-    pub checker_cpu_time_limit: Option<Duration>,
+    /// CPU time limit of answer checkers and interactors.
+    pub jury_cpu_time_limit: Option<Duration>,
 
-    /// Real time limit of checkers.
-    pub checker_real_time_limit: Option<Duration>,
+    /// Real time limit of checkers and interactors.
+    pub jury_real_time_limit: Option<Duration>,
 
-    /// Memory limit of answer checkers.
-    pub checker_memory_limit: Option<MemorySize>,
+    /// Memory limit of answer checkers and interactors.
+    pub jury_memory_limit: Option<MemorySize>,
 
-    /// System call whitelist of answer checkers.
-    pub checker_syscall_whitelist: Vec<SystemCall>,
-
-    /// CPU time limit of interactors.
-    pub interactor_cpu_time_limit: Option<Duration>,
-
-    /// Real time limit of interactors.
-    pub interactor_real_time_limit: Option<Duration>,
-
-    /// Memory limit of interactors.
-    pub interactor_memory_limit: Option<MemorySize>,
-
-    /// System call whitelist of interactors.
-    pub interactor_syscall_whitelist: Vec<SystemCall>,
+    /// System call whitelist of answer checkers and interactors.
+    pub jury_syscall_whitelist: Vec<SystemCall>,
 }
 
 impl JudgeEngineConfig {
@@ -93,15 +84,12 @@ impl JudgeEngineConfig {
     pub fn new() -> Self {
         JudgeEngineConfig {
             judge_uid: None,
+            judge_dir: None,
             judgee_syscall_whitelist: Vec::new(),
-            checker_cpu_time_limit: None,
-            checker_real_time_limit: None,
-            checker_memory_limit: None,
-            checker_syscall_whitelist: Vec::new(),
-            interactor_cpu_time_limit: None,
-            interactor_real_time_limit: None,
-            interactor_memory_limit: None,
-            interactor_syscall_whitelist: Vec::new()
+            jury_cpu_time_limit: None,
+            jury_real_time_limit: None,
+            jury_memory_limit: None,
+            jury_syscall_whitelist: Vec::new(),
         }
     }
 }
@@ -121,6 +109,14 @@ impl JudgeEngine {
         JudgeEngine {
             languages: super::languages::LanguageManager::singleton(),
             config: JudgeEngineConfig::new()
+        }
+    }
+
+    /// Create a new judge engine configured using the given judge engine configuration.
+    pub fn with_config(config: JudgeEngineConfig) -> Self {
+        JudgeEngine {
+            languages: super::languages::LanguageManager::singleton(),
+            config
         }
     }
 
@@ -368,6 +364,11 @@ impl JudgeEngine {
             judgee_proc_bdr.allow_syscall(syscall.clone());
         }
 
+        // Set working directory.
+        if self.config.judge_dir.is_some() {
+            judgee_proc_bdr.working_dir = self.config.judge_dir.clone();
+        }
+
         // Prepare file descriptors used for redirections.
         let test_case = context.test_case.as_mut().unwrap();
         let input_file = File::open(&test_case.descriptor.input_file)?;
@@ -416,14 +417,19 @@ impl JudgeEngine {
         checker_bdr.add_env(String::from("ONLINE_JUDGE"), String::from("TRUE")).unwrap();
 
         // Apply resource constraits to the checker process.
-        checker_bdr.limits.cpu_time_limit = self.config.checker_cpu_time_limit;
-        checker_bdr.limits.real_time_limit = self.config.checker_real_time_limit;
-        checker_bdr.limits.memory_limit = self.config.checker_memory_limit;
+        checker_bdr.limits.cpu_time_limit = self.config.jury_cpu_time_limit;
+        checker_bdr.limits.real_time_limit = self.config.jury_real_time_limit;
+        checker_bdr.limits.memory_limit = self.config.jury_memory_limit;
         checker_bdr.use_native_rlimit = false;
 
         // Apply redirections to the checker.
         let mut checker_output = TempFile::new()?;
         checker_bdr.redirections.stdout = Some(checker_output.file.duplicate()?);
+
+        // Set working directory.
+        if self.config.judge_dir.is_some() {
+            checker_bdr.working_dir = self.config.judge_dir.clone();
+        }
 
         // Pass input file, answer file and judgee's output file to the custom checker via command
         // line arguments.
@@ -434,7 +440,7 @@ impl JudgeEngine {
             test_case.judgee_output_file.as_ref().unwrap().path.to_str().unwrap()))?;
 
         checker_bdr.uid = self.config.judge_uid;
-        for syscall in &self.config.checker_syscall_whitelist {
+        for syscall in &self.config.jury_syscall_whitelist {
             checker_bdr.allow_syscall(syscall.clone());
         }
 

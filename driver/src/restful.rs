@@ -2,9 +2,7 @@
 //! judge board server's REST APIs.
 //!
 
-use std::fs::File;
 use std::io::Write;
-use std::path::Path;
 use std::sync::Once;
 
 use reqwest::{Client as HttpClient, Response, Url};
@@ -56,7 +54,7 @@ fn with_http_client<F, R>(func: F) -> Result<R>
 fn get_full_request_url<T>(path: T) -> Result<reqwest::Url>
     where T: AsRef<str> {
     let config = crate::config::app_config();
-    let full_path_str = format!("{}{}", config.judge_board_url, path.as_ref());
+    let full_path_str = format!("{}{}", config.cluster.judge_board_url, path.as_ref());
     Url::parse(&full_path_str)
         .map_err(|e| Error::from(e))
 }

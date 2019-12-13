@@ -468,7 +468,7 @@ impl ArchiveStore {
     pub fn init() {
         SINGLETON_ONCE.call_once(|| {
             let config = crate::config::app_config();
-            let archive_root_dir = config.archive_dir.clone();
+            let archive_root_dir = config.storage.archive_dir.clone();
             unsafe {
                 SINGLETON = Some(ArchiveStore {
                     root_dir: archive_root_dir

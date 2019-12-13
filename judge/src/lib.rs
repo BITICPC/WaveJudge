@@ -96,7 +96,7 @@ pub enum CompilationScheme {
 }
 
 /// Represent the result of a compilation job.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct CompilationResult {
     /// Is the compilation job successful?
@@ -257,7 +257,7 @@ pub struct TestCaseDescriptor {
 }
 
 /// Result of a judge task.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct JudgeResult {
     /// Overall verdict of the judge task.
@@ -307,7 +307,7 @@ impl Default for JudgeResult {
 }
 
 /// Result of a judge task on a specific test case.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TestCaseResult {
     /// Verdict of the test case.
