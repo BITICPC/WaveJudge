@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 "log" = "0.4"
+"log4rs" = "0.9"
 "error-chain" = "0.12"
 "libc" = "0.2"
 "nix" = "0.15"

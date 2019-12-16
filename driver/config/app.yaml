@@ -1,0 +1,40 @@
+cluster:
+    # URL to the judge board server.
+    judge_board_url: "http://judge_board"
+
+    # The interval between two consecutive heartbeat packets sent to the judge board server,
+    # in seconds.
+    heartbeat_interval: 5
+
+storage:
+    # Path to the directory containing test archives.
+    archive_dir: "/archive/dir"
+
+    # Path to the sqlite database file.
+    db_file: "path/to/db/file"
+
+engine:
+    # The directory used for judging.
+    judge_dir: "/judge/dir"
+
+    # Paths to the dynamic linkling libraries containing language providers to be loaded
+    # dynamically.
+    language_dylibs: ["language_dylib_1", "language_dylib_2"]
+
+    # The effective user name of the judge process.
+    judge_username: "Lancern"
+
+    # A list of allowed system calls for the judgee program.
+    judgee_syscall_whitelist: ["read", "write", "exit"]
+
+    # CPU time limit for jury programs (e.g. checkers, interactors), in milliseconds.
+    jury_cpu_time_limit: 1000
+
+    # Real time limit for jury programs (e.g. checkers, interactors), in milliseconds.
+    jury_real_time_limit: 10000
+
+    # Memory limit for jury programs (e.g. checkers, interactors), in megabytes.
+    jury_memory_limit: 1024
+
+    # A list of allowed system calls for the jury program.
+    jury_syscall_whitelist: ["open", "read", "write", "close", "exit"]

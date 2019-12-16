@@ -49,9 +49,6 @@ pub enum TestArchiveCorruption {
     /// Some answer file is missing.
     MissingAnswerFile(PathBuf),
 
-    /// The test archive contains both th checker file and the interactor file.
-    RedundantCheckerOrInteractor,
-
     /// Some entry cannot be categorized.
     UnknownEntry(PathBuf),
 }
@@ -64,8 +61,6 @@ impl Display for TestArchiveCorruption {
                 f.write_fmt(format_args!("missing input file for entry: {}", path.display())),
             MissingAnswerFile(path) =>
                 f.write_fmt(format_args!("missing answer file for entry: {}", path.display())),
-            RedundantCheckerOrInteractor =>
-                f.write_str("redundant checker or interactor"),
             UnknownEntry(path) =>
                 f.write_fmt(format_args!("unknown entry: {}", path.display()))
         }
