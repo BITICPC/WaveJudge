@@ -7,6 +7,7 @@ use std::sync::Once;
 
 use reqwest::{Client as HttpClient, Response, Url};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 error_chain::error_chain! {
     types {
@@ -115,4 +116,14 @@ pub fn download_archive<T1, T2>(archive_id: T1, output: &mut T2) -> Result<()>
     where T1: ToString, T2: ?Sized + Write {
     let path = format!("/archives/{}", archive_id.to_string());
     download(path, output)
+}
+
+/// Provide a trait for problem info values.
+pub trait ProblemInfo : DeserializeOwned { }
+
+/// Get problem information.
+pub fn get_problem_info<T, P>(problem_id: T) -> Result<P>
+    where T: ToString, P: ProblemInfo {
+    let path = format!("/problems/{}", problem_id.to_string());
+    get(path)?.json().map_err(Error::from)
 }

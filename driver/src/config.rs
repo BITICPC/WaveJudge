@@ -36,6 +36,9 @@ pub struct ClusterConfig {
 pub struct StorageConfig {
     /// The directory under which all test data archives are maintained.
     pub archive_dir: PathBuf,
+
+    /// Path to the database file that contains a sqlite database.
+    pub db_file: PathBuf,
 }
 
 /// Provide judge engine related configurations.
@@ -113,6 +116,7 @@ mod tests {
                 heartbeat_interval: 5
             storage:
                 archive_dir: "/archive/dir"
+                db_file: "path/to/db/file"
             engine:
                 judge_dir: "/judge/dir"
                 language_dylibs: ["language_dylib_1", "language_dylib_2"]
@@ -129,6 +133,7 @@ mod tests {
         assert_eq!(5, config.cluster.heartbeat_interval);
 
         assert_eq!(PathBuf::from_str("/archive/dir").unwrap(), config.storage.archive_dir);
+        assert_eq!(PathBuf::from_str("path/to/db/file").unwrap(), config.storage.db_file);
 
         assert_eq!(PathBuf::from_str("/judge/dir").unwrap(), config.engine.judge_dir);
         assert_eq!(vec![PathBuf::from_str("language_dylib_1").unwrap(),
