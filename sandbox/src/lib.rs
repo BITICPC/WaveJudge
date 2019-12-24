@@ -565,6 +565,17 @@ pub enum ProcessExitStatus {
     BannedSyscall
 }
 
+impl ProcessExitStatus {
+    /// Get the exit code, if there is any.
+    pub fn exit_code(&self) -> Option<i32> {
+        use ProcessExitStatus::*;
+        match self {
+            Normal(code) => Some(*code),
+            _ => None
+        }
+    }
+}
+
 impl Default for ProcessExitStatus {
     fn default() -> Self {
         ProcessExitStatus::NotExited

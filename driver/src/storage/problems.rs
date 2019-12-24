@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::sync::Arc;
 
+use crate::forkserver::{ForkServerClient, ForkServerClientExt};
 use crate::restful::RestfulClient;
 use crate::restful::entities::{ObjectId, LanguageTriple, ProblemInfo, JudgeMode};
 
@@ -19,9 +20,11 @@ error_chain::error_chain! {
     links {
         DbError(super::db::Error, super::db::ErrorKind);
         RestfulError(crate::restful::Error, crate::restful::ErrorKind);
+        ForkServerError(crate::forkserver::Error, crate::forkserver::ErrorKind);
     }
 
     foreign_links {
+        IoError(::std::io::Error);
         SqliteError(::sqlite::Error);
     }
 }
@@ -139,8 +142,8 @@ impl ProblemMetadata {
         }
     }
 
-    /// Determine whether the jury program has been compiled.
-    pub fn jury_compiled(&self) -> bool {
+    /// Determine whether the jury program has been compiled successfully.
+    pub fn jury_compile_succeeded(&self) -> bool {
         self.jury_exec_path.is_some()
     }
 
@@ -239,12 +242,28 @@ pub struct ProblemStore {
 
     /// RESTful client connected to the judge board server.
     rest: Arc<RestfulClient>,
+
+    /// Fork server client connected to the fork server.
+    fork_server: Arc<ForkServerClient>,
+
+    /// Path to the directory containing compiled jury programs.
+    jury_dir: PathBuf,
 }
 
 impl ProblemStore {
     /// Create a new `ProblemStore` instance.
-    pub(super) fn new(db: Arc<SqliteConnection>, rest: Arc<RestfulClient>) -> Result<Self> {
-        let store = ProblemStore { db, rest };
+    pub(super) fn new<P>(
+        db: Arc<SqliteConnection>,
+        rest: Arc<RestfulClient>,
+        fork_server: Arc<ForkServerClient>,
+        jury_dir: P) -> Result<Self>
+        where P: Into<PathBuf> {
+        let store = ProblemStore {
+            db,
+            rest,
+            fork_server,
+            jury_dir: jury_dir.into()
+        };
         store.init_db()?;
         Ok(store)
     }
@@ -278,37 +297,12 @@ impl ProblemStore {
         Ok(())
     }
 
-    /// Get the problem metadata of the specified problem.
-    pub fn get_problem_metadata(&self, id: ObjectId) -> Result<ProblemMetadata> {
-        let cached_metadata = self.db.execute(|conn| -> Result<Option<ProblemMetadata>> {
-            let mut cursor = conn
-                .prepare("SELECT * FROM problems WHERE id = ?")?
-                .cursor();
-            cursor.bind(&[sqlite::Value::String(id.to_string())])?;
-
-            if let Some(row) = cursor.next()? {
-                Ok(ProblemMetadata::from_db_row(row))
-            } else {
-                Ok(None)
-            }
-        })?;
-        if cached_metadata.is_some() {
-            return Ok(cached_metadata.unwrap());
-        }
-
-        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?.into();
-        metadata.save(self.db.as_ref())?;
-
-        Ok(metadata)
-    }
-
     /// Get the last update timestamp of the specified problem's metadata.
-    pub fn get_problem_timestamp(&self, id: ObjectId) -> Result<Option<u64>> {
-        let id_str = id.to_string();
+    fn get_timestamp(&self, id: ObjectId) -> Result<Option<u64>> {
         self.db.execute(move |conn| {
             let mut cursor = conn.prepare("SELECT timestamp FROM problems WHERE id = ?")?
                                 .cursor();
-            cursor.bind(&[sqlite::Value::String(id_str)])?;
+            cursor.bind(&[sqlite::Value::String(id.to_string())])?;
             match cursor.next()? {
                 Some(v) => match v[0].as_integer() {
                     Some(i) => Ok(Some(crate::utils::bitcast::<i64, u64>(i))),
@@ -319,22 +313,119 @@ impl ProblemStore {
         })
     }
 
-    /// Update the problem metadata for the specified problem if the timestamp of the cached problem
-    /// metadata is before the given one. This function returns the updated problem metadata.
-    pub fn update_problem_metadata(&self, id: ObjectId, timestamp: u64) -> Result<ProblemMetadata> {
-        let cached_timestamp = self.get_problem_timestamp(id)?;
-        if cached_timestamp.is_some() && cached_timestamp.unwrap() >= timestamp {
-            self.get_problem_metadata(id)
-        } else {
-            self.update_problem_metadata_force(id)
-        }
+    /// Get the latest timestamp of the specified problem.
+    fn get_remote_timestamp(&self, id: ObjectId) -> Result<u64> {
+        Ok(self.rest.get_problem_timestamp(id)?)
     }
 
-    /// Update the problem metadata for the specified problem. This function returns the updated problem
-    /// metadata.
-    pub fn update_problem_metadata_force(&self, id: ObjectId) -> Result<ProblemMetadata> {
-        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?.into();
+    /// Compile the jury program. This function returns `Err` to indicate judge errors occured to
+    /// compile the jury program, returns `Ok(None)` to indicate the jury program cannot be compiled
+    /// due to compilation errors.
+    fn compile_jury(&self, jury_src: &str, jury_lang: &LanguageTriple, judge_mode: JudgeMode)
+        -> Result<Option<PathBuf>> {
+        let scheme = match judge_mode {
+            JudgeMode::SpecialJudge => judge::CompilationScheme::Checker,
+            JudgeMode::Interactive => judge::CompilationScheme::Interactor,
+            _ => unreachable!()
+        };
+        let result = self.fork_server.compile_source(
+            jury_src,
+            jury_lang.to_judge_language(),
+            scheme)?;
+
+        if !result.succeeded {
+            log::error!("failed to compile jury: {}", result.compiler_out.unwrap_or_default());
+            return Ok(None);
+        }
+
+        if result.compiler_out.is_none() {
+            log::error!("failed to compile jury: judge returned ok but no output file.");
+            return Ok(None);
+        }
+
+        Ok(Some(result.output_file.unwrap()))
+    }
+
+    /// Get the cached version of the metadata of the specified problem. The returned metadata
+    /// might be out of date.
+    pub fn get_cached(&self, id: ObjectId) -> Result<Option<ProblemMetadata>> {
+        self.db.execute(|conn| -> Result<Option<ProblemMetadata>> {
+            let mut cursor = conn
+                .prepare("SELECT * FROM problems WHERE id = ?")?
+                .cursor();
+            cursor.bind(&[sqlite::Value::String(id.to_string())])?;
+
+            if let Some(row) = cursor.next()? {
+                Ok(ProblemMetadata::from_db_row(row))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    /// Get the problem metadata of the specified problem. The returned metadata is guaranteed to be
+    /// the latest version. This function will send a request to the judge board server if the
+    /// cached metadata is out of date.
+    pub fn get(&self, id: ObjectId) -> Result<ProblemMetadata> {
+        if let Some(timestamp) = self.get_timestamp(id)? {
+            let remote_ts = self.get_remote_timestamp(id)?;
+            if timestamp >= remote_ts {
+                if let Some(metadata) = self.get_cached(id)? {
+                    return Ok(metadata);
+                }
+            }
+        }
+
+        let mut metadata: ProblemMetadata = self.rest.get_problem_info(id)?.into();
+        if metadata.has_jury() {
+            // Compile jury program.
+            log::info!("Compiling jury program for problem \"{}\"", metadata.id);
+
+            // Note that if has_jury function returns true then jury_src and jury_lang used below
+            // must be `Some`.
+            let jury_exec_temp_path = self.compile_jury(
+                metadata.jury_src.as_ref().expect("failed to get source code of jury"),
+                metadata.jury_lang.as_ref().expect("failed to get language of jury"),
+                metadata.judge_mode)?;
+
+            if jury_exec_temp_path.is_some() {
+                // Copy the jury executable to the jury directory.
+                let jury_exec_temp_path = jury_exec_temp_path.unwrap();
+                let jury_exec_ext = jury_exec_temp_path.extension();
+
+                // The file name of the jury executable should be {problemId}.{extension} under the
+                // jury exectable directory. Build the jury executable's file name now.
+                let mut jury_exec_path = self.jury_dir.clone();
+                jury_exec_path.push(id.to_string());
+                if jury_exec_ext.is_some() {
+                    jury_exec_path.set_extension(jury_exec_ext.unwrap());
+                }
+
+                // And do the copy.
+                std::fs::copy(&jury_exec_temp_path, &jury_exec_path)?;
+
+                metadata.jury_exec_path = Some(jury_exec_path);
+            }
+        }
+
         metadata.save(self.db.as_ref())?;
+
         Ok(metadata)
+    }
+}
+
+/// Provide extension functions for `JudgeMode`.
+trait JudgeModeExt {
+    /// Determine whether jury program is needed for this judge mode.
+    fn need_jury(&self) -> bool;
+}
+
+impl JudgeModeExt for JudgeMode {
+    fn need_jury(&self) -> bool {
+        use JudgeMode::*;
+        match self {
+            SpecialJudge | Interactive => true,
+            _ => false,
+        }
     }
 }

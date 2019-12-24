@@ -70,11 +70,14 @@ pub struct ClusterConfig {
 /// Provide storage related configurations.
 #[derive(Debug, Deserialize)]
 pub struct StorageConfig {
+    /// Path to the database file that contains a sqlite database.
+    pub db_file: PathBuf,
+
     /// The directory under which all test data archives are maintained.
     pub archive_dir: PathBuf,
 
-    /// Path to the database file that contains a sqlite database.
-    pub db_file: PathBuf,
+    /// The directory under which all the compiled jury programs will be maintained.
+    pub jury_dir: PathBuf,
 }
 
 /// Provide judge engine related configurations.

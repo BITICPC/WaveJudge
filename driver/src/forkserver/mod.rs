@@ -14,10 +14,12 @@ use serde::{Serialize, Deserialize};
 
 use judge::{
     CompilationTaskDescriptor,
+    CompilationScheme,
     CompilationResult,
     JudgeTaskDescriptor,
     JudgeResult,
 };
+use judge::languages::LanguageIdentifier;
 
 use crate::config::JudgeEngineConfig;
 
@@ -208,6 +210,38 @@ impl Drop for ForkServerClient {
     fn drop(&mut self) {
         // Kill the fork server process.
         nix::sys::signal::kill(self.fork_server_id, Signal::SIGKILL).ok();
+    }
+}
+
+/// Provide extension functions for `ForkServerClient`.
+pub trait ForkServerClientExt {
+    /// Compile the literal source code into executable file.
+    fn compile_source<T>(&self, source: &T, lang: LanguageIdentifier, scheme: CompilationScheme)
+        -> Result<CompilationResult>
+        where T: ?Sized + AsRef<str>;
+}
+
+impl ForkServerClientExt for ForkServerClient {
+    fn compile_source<T>(&self, source: &T, lang: LanguageIdentifier, scheme: CompilationScheme)
+        -> Result<CompilationResult>
+        where T: ?Sized + AsRef<str> {
+        // Create a temp file to store the source code of jury.
+        let src_file = tempfile::NamedTempFile::new()?;
+        std::fs::write(src_file.path(), source.as_ref())?;
+
+        let program = judge::Program::new(src_file.path(), lang);
+        let mut task = judge::CompilationTaskDescriptor::new(program);
+
+        // Create a temp directory for storing the output files of the compilation.
+        let output_dir = tempfile::tempdir()?;
+        task.output_dir = Some(output_dir.path().to_owned());
+        task.scheme = scheme;
+
+        // Execute the compilation job.
+        let cmd = Command::Compile(task);
+        let result = self.execute_cmd(&cmd)?.unwrap_as_compilation_result();
+
+        Ok(result)
     }
 }
 

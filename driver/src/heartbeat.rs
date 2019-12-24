@@ -74,12 +74,12 @@ fn create_heartbeat() -> Result<Heartbeat> {
 }
 
 /// The minimal number of seconds between two adjacent heartbeat packets.
-const MIN_HEARTBEAT_INTERVAL: u64 = 3;
+const MIN_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
 
 /// This function is the entry point of the heartbeat daemon thread.
 fn heartbeat_daemon_entry(options: HeartbeatDaemonOptions) {
-    let heartbeat_interval = Duration::from_secs(
-        *crate::utils::max(&options.heartbeat_interval, &MIN_HEARTBEAT_INTERVAL) as u64);
+    let heartbeat_interval = *crate::utils::max(
+        &options.heartbeat_interval, &MIN_HEARTBEAT_INTERVAL);
 
     loop {
         std::thread::sleep(heartbeat_interval);
@@ -107,7 +107,14 @@ pub struct HeartbeatDaemonOptions {
     pub rest: Arc<RestfulClient>,
 
     /// The interval between two consecutive heartbeat packets, in seconds.
-    pub heartbeat_interval: u64,
+    pub heartbeat_interval: Duration,
+}
+
+impl HeartbeatDaemonOptions {
+    /// Create a new `HeartbeatDaemonOptions` value.
+    pub fn new(rest: Arc<RestfulClient>, heartbeat_interval: Duration) -> Self {
+        HeartbeatDaemonOptions { rest, heartbeat_interval }
+    }
 }
 
 /// Start the heartbeat daemon thread.

@@ -2,7 +2,6 @@
 //!
 
 use std::cmp::Ordering;
-use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 /// Retrieves the greater one among the given two objects. If the two objects are considered equal,
 /// then `lhs` will be returned.
@@ -23,35 +22,6 @@ pub fn bitcast<I, O>(input: I) -> O
     }
 
     unsafe { *((&input as *const I) as *const O) }
-}
-
-/// Provide a `Once` value similar to `std::sync::Once` but additoinally allows return value from
-/// the user provided function.
-pub struct Once {
-    /// An atomic boolean value indicating whether the `call_once` function has been called on this
-    /// value.
-    state: AtomicBool,
-}
-
-impl Once {
-    /// Create a new `Once` value.
-    pub const fn new() -> Self {
-        Once {
-            state: AtomicBool::new(false)
-        }
-    }
-
-    /// Call the given closure if the `call_once` function has not been called already. This
-    /// function returns `Some(v)` where `v` is the return value of `closure` if the given closure
-    /// is executed or `None` if the given closure is not executed.
-    pub fn call_once<F, R>(&self, closure: F) -> Option<R>
-        where F: FnOnce() -> R {
-        if !self.state.swap(true, AtomicOrdering::SeqCst) {
-            Some(closure())
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg(test)]

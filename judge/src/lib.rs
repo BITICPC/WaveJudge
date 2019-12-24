@@ -173,6 +173,17 @@ pub struct Program {
     pub language: LanguageIdentifier,
 }
 
+impl Program {
+    /// Create a new `Program` value.
+    pub fn new<P>(file: P, language: LanguageIdentifier) -> Self
+        where P: Into<PathBuf> {
+        Program {
+            file: file.into(),
+            language
+        }
+    }
+}
+
 /// Resource limits that should be applied to the judgee when executing judge.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -256,6 +267,17 @@ pub struct TestCaseDescriptor {
     pub output_file: PathBuf
 }
 
+impl TestCaseDescriptor {
+    /// Create a new `TestCaseDescriptor` value.
+    pub fn new<P1, P2>(input_file: P1, answer_file: P2) -> Self
+        where P1: Into<PathBuf>, P2: Into<PathBuf> {
+        TestCaseDescriptor {
+            input_file: input_file.into(),
+            output_file: answer_file.into(),
+        }
+    }
+}
+
 /// Result of a judge task.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -266,8 +288,10 @@ pub struct JudgeResult {
     /// Overall resource usage statistics.
     pub rusage: ProcessResourceUsage,
 
-    /// Judge results of every executed test cases in the test suite.
-    test_suite: Vec<TestCaseResult>
+    /// Judge results of every executed test cases in the test suite. Do not directly modify this
+    /// field; use the `add_test_case_result` function instead to maintain `verdict` and `rusage`
+    /// accordingly.
+    pub test_suite: Vec<TestCaseResult>
 }
 
 impl JudgeResult {
@@ -278,17 +302,6 @@ impl JudgeResult {
             rusage: ProcessResourceUsage::new(),
             test_suite: Vec::new()
         }
-    }
-
-    /// Get judge results of every executed test cases in the test suite. The order of the
-    /// `TestCaseResult` instances in the returned slice is the same as the order
-    /// `TestCaseDescriptor` instances was added to the judge task descriptor.
-    ///
-    /// It should be noticed that the length of the returned slice could be smaller than the number
-    /// of test cases in the test suite, in which case the judgee did not pass the last test case in
-    /// the returned slice.
-    pub fn test_suite(&self) -> &[TestCaseResult] {
-        &self.test_suite
     }
 
     /// Add the given judge result on some test case to the overall judge result. This function will

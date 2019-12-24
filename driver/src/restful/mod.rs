@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use reqwest::{Client as HttpClient, Response, Url};
 use serde::Serialize;
 
-use entities::{ObjectId, Heartbeat, ProblemInfo, SubmissionInfo};
+use entities::{ObjectId, Heartbeat, ProblemInfo, SubmissionInfo, SubmissionJudgeResult};
 
 error_chain::error_chain! {
     types {
@@ -53,8 +53,8 @@ impl RestfulClient {
 
     /// Get full request URL to the judge board server. The given path should be an absolute path that
     /// can be concatenated after the host part of the URL, e.g. `/judges`.
-    fn get_full_request_url<T>(&self, path: T) -> Result<reqwest::Url>
-        where T: AsRef<str> {
+    fn get_full_request_url<T>(&self, path: &T) -> Result<reqwest::Url>
+        where T: ?Sized + AsRef<str> {
         let full_path_str = format!("{}{}", self.judge_board_url, path.as_ref());
         Url::parse(&full_path_str)
             .map_err(|e| Error::from(e))
@@ -69,8 +69,8 @@ impl RestfulClient {
     }
 
     /// Send a GET request to the judge board server.
-    fn get<T>(&self, path: T) -> Result<Response>
-        where T: AsRef<str> {
+    fn get<T>(&self, path: &T) -> Result<Response>
+        where T: ?Sized + AsRef<str> {
         let request_url = self.get_full_request_url(path)?;
 
         self.with_http_client(|http| {
@@ -82,8 +82,8 @@ impl RestfulClient {
 
     /// Send a GET request to the judge board server, saving the content of the response to the given
     /// output device.
-    fn download<T1, T2>(&self, path: T1, output: &mut T2) -> Result<()>
-        where T1: AsRef<str>, T2: ?Sized + Write {
+    fn download<T1, T2>(&self, path: &T1, output: &mut T2) -> Result<()>
+        where T1: ?Sized + AsRef<str>, T2: ?Sized + Write {
         let mut response = self.get(path)?;
         std::io::copy(&mut response, output)?;
 
@@ -92,8 +92,8 @@ impl RestfulClient {
 
     /// Send a PATCH request to the judge board server, requesting the given path. The body of the
     /// request will be populated by the payload in JSON format.
-    fn patch<T, U>(&self, path: T, payload: &U) -> Result<()>
-        where T: AsRef<str>, U: ?Sized + Serialize {
+    fn patch<T, U>(&self, path: &T, payload: &U) -> Result<()>
+        where T: ?Sized + AsRef<str>, U: ?Sized + Serialize {
         let request_url = self.get_full_request_url(path)?;
 
         let response = self.with_http_client(|http| {
@@ -118,14 +118,20 @@ impl RestfulClient {
     /// Download the given test archive and save to the given output device.
     pub fn download_archive<O>(&self, archive_id: ObjectId, output: &mut O) -> Result<()>
         where O: ?Sized + Write {
-        let path = format!("/archives/{}", archive_id.to_string());
-        self.download(path, output)
+        let path = format!("/archives/{}", archive_id);
+        self.download(&path, output)
     }
 
     /// Get problem information.
     pub fn get_problem_info(&self, problem_id: ObjectId) -> Result<ProblemInfo> {
-        let path = format!("/problems/{}", problem_id.to_string());
-        self.get(path)?.json().map_err(Error::from)
+        let path = format!("/problems/{}", problem_id);
+        self.get(&path)?.json().map_err(Error::from)
+    }
+
+    /// Get the timestamp of the specified problem.
+    pub fn get_problem_timestamp(&self, problem_id: ObjectId) -> Result<u64> {
+        let path = format!("/problems/{}/timestamp", problem_id);
+        self.get(&path)?.json().map_err(Error::from)
     }
 
     /// Get an unjudged submission from the judge board server.
@@ -139,5 +145,12 @@ impl RestfulClient {
         } else {
             Err(Error::from(ErrorKind::NonSuccessfulStatusCode(response.status().as_u16())))
         }
+    }
+
+    /// Patch the given submission judge result.
+    pub fn patch_judge_result(&self, submission_id: ObjectId,
+        result: &SubmissionJudgeResult) -> Result<()> {
+        let path = format!("/submissions/{}", submission_id);
+        self.patch(&path, result)
     }
 }

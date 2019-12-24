@@ -3,6 +3,7 @@ extern crate log4rs;
 extern crate error_chain;
 extern crate libc;
 extern crate nix;
+extern crate rand;
 extern crate sqlite;
 extern crate procfs;
 extern crate reqwest;
@@ -27,9 +28,11 @@ mod utils;
 mod workers;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use config::AppConfig;
 use forkserver::ForkServerClient;
+use heartbeat::HeartbeatDaemonOptions;
 use restful::RestfulClient;
 use storage::AppStorageFacade;
 
@@ -81,6 +84,13 @@ fn do_main() -> Result<()> {
             .default_value("config/app.yaml"))
         .get_matches();
     let context = init::init(arg_matches)?;
+
+    // Start heartbeat daemon threads.
+    let hb_options = HeartbeatDaemonOptions::new(
+        context.rest.clone(),
+        Duration::from_secs(context.config.cluster.heartbeat_interval as u64));
+    heartbeat::start_daemon(hb_options);
+
     workers::run(Arc::new(context))?;
     Ok(())
 }

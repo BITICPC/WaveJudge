@@ -307,17 +307,6 @@ impl<R> TestArchive<R>
     }
 }
 
-impl TestArchive<File> {
-    /// Create a new `TestArchive` value from the given file. The file should be a valid zip
-    /// archive.
-    fn from_file<T>(path: T) -> Result<Self>
-        where T: AsRef<Path> {
-        let file = File::open(path)?;
-        let archive = ZipArchive::new(file)?;
-        TestArchive::new(archive)
-    }
-}
-
 /// Provide a trait for types whose contents can be extracted into a specific directory.
 trait Extractable {
     /// The error type returned from extract operation on this type.
@@ -441,16 +430,6 @@ impl<'a> TestCaseInfo<'a> {
         p.push(self.test_case_entry.answer_file_path());
         p
     }
-
-    /// Open the input file of this test case.
-    pub fn open_input_file(&self) -> std::io::Result<File> {
-        File::open(&self.input_file_path())
-    }
-
-    /// Open the answer file of this test case.
-    pub fn open_answer_file(&self) -> std::io::Result<File> {
-        File::open(&self.answer_file_path())
-    }
 }
 
 /// Provide access to local archive store.
@@ -533,7 +512,7 @@ impl ArchiveStore {
     ///
     /// `rest` is a `RestfulClient` object that has connected to the judge board through which the
     /// missing archive will be downloaded.
-    pub fn get_or_download(&self, id: ObjectId) -> Result<TestArchiveHandle> {
+    pub fn get(&self, id: ObjectId) -> Result<TestArchiveHandle> {
         let archive_dir = self.get_archive_dir(id);
         if !archive_dir.exists() {
             self.download_archive(id, &archive_dir)?;

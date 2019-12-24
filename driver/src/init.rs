@@ -80,6 +80,14 @@ impl AppContextBuilder {
         Ok(())
     }
 
+    /// Get an Arc to the initialized fork server. This function panics if the fork server has not
+    /// been initialized yet.s
+    fn get_fork_server(&self) -> Arc<ForkServerClient> {
+        self.fork_server.as_ref()
+            .expect("fork server has not been initialized yet.")
+            .clone()
+    }
+
     /// Initialize RESTful client to the judge board server.
     fn init_rest(&mut self) {
         let judge_board_url = &self.get_app_config().cluster.judge_board_url;
@@ -103,8 +111,8 @@ impl AppContextBuilder {
 
         let config = self.get_app_config();
         let rest = self.get_rest();
-        let storage = AppStorageFacade::new(
-            &config.storage.db_file, &config.storage.archive_dir, rest)?;
+        let fork_server = self.get_fork_server();
+        let storage = AppStorageFacade::new(&config, rest, fork_server)?;
 
         self.storage = Some(storage);
         Ok(())
