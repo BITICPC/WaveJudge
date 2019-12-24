@@ -1,13 +1,12 @@
-//! This module defines some common facilities used across WaveJudge.
+//! This module defines the entities used in the REST protocol used in WaveJudge.
 //!
 
 use std::fmt::{Display, Formatter};
-use std::hash::Hash;
 use std::str::FromStr;
-use std::string::ToString;
+use std::time::SystemTime;
 
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
-use serde::de::{Visitor, Unexpected};
+use serde::{Serialize, Deserialize, Serializer};
+use serde::de::{Deserializer, Visitor, Unexpected};
 
 /// Represent a 12-byte identifier used by BSON and MongoDB.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
@@ -90,18 +89,71 @@ impl<'de> Visitor<'de> for ObjectIdDeserializeVisitor {
     }
 }
 
-/// Represent a language triple.
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+/// A heartbeat packet.
+#[derive(Debug, Serialize, Clone)]
+pub struct Heartbeat {
+    /// Timestamp of the heartbeat packet. The timestamp is represented by the number of seconds
+    /// elapsed from the UNIX_EPOCH (Jan. 1, 1970, 00:00:00 a.m.).
+    #[serde(rename = "timestamp")]
+    pub timestamp: u64,
+
+    /// Number of CPU cores installed on this judge node.
+    #[serde(rename = "cores")]
+    pub cores: u32,
+
+    /// Total physical memory installed on this judge node, in bytes.
+    #[serde(rename = "totalPhysicalMemory")]
+    pub total_physical_memory: u64,
+
+    /// Free physical memory installed on this judge node, in bytes.
+    #[serde(rename = "freePhysicalMemory")]
+    pub free_physical_memory: u64,
+
+    /// Total size of swap space, in bytes.
+    #[serde(rename = "totalSwapSpace")]
+    pub total_swap_space: u64,
+
+    /// Size of free swap space, in bytes.
+    #[serde(rename = "freeSwapSpace")]
+    pub free_swap_space: u64,
+
+    /// The size of the cached swap space.
+    #[serde(rename = "cachedSwapSpace")]
+    pub cached_swap_space: u64,
+}
+
+impl Heartbeat {
+    /// Create a new `Heartbeat` value. This function panics if `SystemTime::duration_since`
+    /// function fails when measuring elapsed number of seconds from `UNIX_EPOCH`.
+    pub fn new() -> Self {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("failed to measure elapsed time since UNIX_EPOCH")
+            .as_secs();
+        Heartbeat {
+            timestamp,
+            cores: 0,
+            total_physical_memory: 0,
+            free_physical_memory: 0,
+            total_swap_space: 0,
+            free_swap_space: 0,
+            cached_swap_space: 0,
+        }
+    }
+}
+
+/// A language triple.
+#[derive(Clone, Debug, Deserialize)]
 pub struct LanguageTriple {
-    /// The identifier of the language.
+    /// Identifier of the language.
     #[serde(rename = "identifier")]
     pub identifier: String,
 
-    /// The dialect of the language.
+    /// Dialect of the language.
     #[serde(rename = "dialect")]
     pub dialect: String,
 
-    /// The version of the language.
+    /// Version of the language.
     #[serde(rename = "version")]
     pub version: String,
 }
@@ -118,21 +170,79 @@ impl LanguageTriple {
     }
 }
 
-impl Into<judge::languages::LanguageIdentifier> for LanguageTriple {
-    fn into(self) -> judge::languages::LanguageIdentifier {
-        use judge::languages::{LanguageIdentifier, LanguageBranch};
-        LanguageIdentifier::new(self.identifier, LanguageBranch::new(self.dialect, self.version))
+/// Judge mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub enum JudgeMode {
+    /// Standard mode.
+    Standard,
+
+    /// Special judge mode.
+    SpecialJudge,
+
+    /// Interactive mode.
+    Interactive,
+}
+
+impl Default for JudgeMode {
+    fn default() -> Self {
+        JudgeMode::Standard
     }
 }
 
-impl From<judge::languages::LanguageIdentifier> for LanguageTriple {
-    fn from(identifier: judge::languages::LanguageIdentifier) -> Self {
-        LanguageTriple {
-            identifier: identifier.language().to_owned(),
-            dialect: identifier.dialect().to_owned(),
-            version: identifier.version().to_owned(),
-        }
-    }
+/// Provide information about a problem.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ProblemInfo {
+    /// ID of the problem.
+    #[serde(rename = "id")]
+    pub id: ObjectId,
+
+    /// Judge mode of the problem.
+    #[serde(rename = "judgeMode")]
+    pub judge_mode: JudgeMode,
+
+    /// Time limit of the problem, in millisesconds.
+    #[serde(rename = "timeLimit")]
+    pub time_limit: u64,
+
+    /// Memory limit of the problem, in megabytes.
+    #[serde(rename = "memoryLimit")]
+    pub memory_limit: u64,
+
+    /// Source code of the jury program.
+    #[serde(rename = "jurySource")]
+    pub jury_src: String,
+
+    /// Language of the jury program.
+    #[serde(rename = "juryLanguage")]
+    pub jury_lang: LanguageTriple,
+
+    /// ID of the test archive.
+    #[serde(rename = "archiveId")]
+    pub archive_id: ObjectId,
+
+    /// Timestamp of the problem metadata.
+    #[serde(rename = "timestamp")]
+    pub timestamp: u64,
+}
+
+/// Provide information about a submission.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SubmissionInfo {
+    /// ID of the submission.
+    #[serde(rename = "id")]
+    pub id: ObjectId,
+
+    /// ID of the problem.
+    #[serde(rename = "problemId")]
+    pub problemId: ObjectId,
+
+    /// The source code of the submission.
+    #[serde(rename = "source")]
+    pub source: String,
+
+    /// Language of the submission.
+    #[serde(rename = "language")]
+    pub language: LanguageTriple,
 }
 
 #[cfg(test)]
@@ -182,3 +292,4 @@ mod tests {
         }
     }
 }
+

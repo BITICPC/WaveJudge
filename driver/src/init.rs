@@ -8,11 +8,9 @@ use clap::ArgMatches;
 
 use crate::AppContext;
 
-use crate::archives::ArchiveStore;
 use crate::config::AppConfig;
-use crate::db::SqliteConnection;
 use crate::forkserver::ForkServerClient;
-use crate::problems::ProblemStore;
+use crate::storage::AppStorageFacade;
 use crate::restful::RestfulClient;
 
 error_chain::error_chain! {
@@ -26,8 +24,8 @@ error_chain::error_chain! {
 
     links {
         ConfigError(crate::config::Error, crate::config::ErrorKind);
-        SqliteError(crate::db::Error, crate::db::ErrorKind);
         ForkServerError(crate::forkserver::Error, crate::forkserver::ErrorKind);
+        StorageError(crate::storage::Error, crate::storage::ErrorKind);
     }
 }
 
@@ -39,17 +37,11 @@ struct AppContextBuilder {
     /// The fork server client.
     fork_server: Option<Arc<ForkServerClient>>,
 
-    /// The connection to the sqlite database.
-    db: Option<Arc<SqliteConnection>>,
-
     /// The REST client connected to the judge board server.
     rest: Option<Arc<RestfulClient>>,
 
-    /// The archive store.
-    archives: Option<ArchiveStore>,
-
-    /// The problem store.
-    problems: Option<ProblemStore>,
+    /// The application storage facade.
+    storage: Option<AppStorageFacade>,
 }
 
 impl AppContextBuilder {
@@ -57,11 +49,9 @@ impl AppContextBuilder {
     fn new() -> Self {
         AppContextBuilder {
             config: None,
-            db: None,
-            archives: None,
-            problems: None,
-            rest: None,
             fork_server: None,
+            rest: None,
+            storage: None,
         }
     }
 
@@ -90,24 +80,6 @@ impl AppContextBuilder {
         Ok(())
     }
 
-    /// Initialize the database connection to the sqlite database.
-    fn init_db(&mut self) -> Result<()> {
-        let db_file = &self.get_app_config().storage.db_file;
-        log::info!("Initializing database connection to sqlite instance at {}", db_file.display());
-
-        let conn = SqliteConnection::new(db_file)?;
-        self.db = Some(Arc::new(conn));
-        Ok(())
-    }
-
-    /// Get an Arc to the initialized database connection object. This function panics if the
-    /// database connection has not been initialized yet.
-    fn get_db(&self) -> Arc<SqliteConnection> {
-        self.db.as_ref()
-            .expect("Sqlite database connection has not been initialized yet.")
-            .clone()
-    }
-
     /// Initialize RESTful client to the judge board server.
     fn init_rest(&mut self) {
         let judge_board_url = &self.get_app_config().cluster.judge_board_url;
@@ -125,27 +97,16 @@ impl AppContextBuilder {
             .clone()
     }
 
-    /// Initialize test archive cache store.
-    fn init_archives(&mut self) -> Result<()> {
-        let archive_dir = &self.get_app_config().storage.archive_dir;
-        log::info!("Initializing test archive store at {}", archive_dir.display());
+    /// Initialize application storage facade.
+    fn init_storage_facade(&mut self) -> Result<()> {
+        log::info!("Initializing application storage facilities");
 
-        let rest = self.rest.as_ref().expect("RESTful client has not been initialized yet.")
-            .clone();
-        let store = ArchiveStore::new(archive_dir, rest);
-        self.archives = Some(store);
-        Ok(())
-    }
-
-    /// Initialize problems metadata store.
-    fn init_problems(&mut self) -> Result<()> {
-        log::info!("Initializing problem store");
-
-        let db = self.get_db();
+        let config = self.get_app_config();
         let rest = self.get_rest();
-        let store = ProblemStore::new(db, rest);
-        self.problems = Some(store);
+        let storage = AppStorageFacade::new(
+            &config.storage.db_file, &config.storage.archive_dir, rest)?;
 
+        self.storage = Some(storage);
         Ok(())
     }
 
@@ -157,10 +118,8 @@ impl AppContextBuilder {
         // The initialization of fork server should be as early as possible to avoid unnecessary
         // memory footprint in the fork server process.
         self.init_fork_server()?;
-        self.init_db()?;
         self.init_rest();
-        self.init_archives()?;
-        self.init_problems()?;
+        self.init_storage_facade()?;
 
         Ok(())
     }
@@ -171,10 +130,8 @@ impl AppContextBuilder {
         AppContext {
             config: self.config.expect("Application configuration has not been initialized yet."),
             fork_server: self.fork_server.expect("Fork server has not been initialized yet."),
-            db: self.db.expect("Sqlite database connection has not been initialized yet."),
             rest: self.rest.expect("RESTful client has not been initialized yet."),
-            archives: self.archives.expect("Test archive store has not been initialized yet."),
-            problems: self.problems.expect("Problem metadata store has not been initialized yet."),
+            storage: self.storage.expect("Application storage has not been initialized yet."),
         }
     }
 }

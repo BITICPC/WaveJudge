@@ -2,13 +2,13 @@
 //! server.
 //!
 
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use std::sync::Arc;
 
 use procfs::{CpuInfo, Meminfo};
-use serde::Serialize;
 
 use crate::restful::RestfulClient;
+use crate::restful::entities::Heartbeat;
 
 error_chain::error_chain! {
     types {
@@ -58,54 +58,20 @@ impl MemoryFootprint {
     }
 }
 
-/// Represent a heartbeat packet that will be sent to the judge board server.
-#[derive(Debug, Serialize)]
-struct Heartbeat {
-    /// Timestamp of the heartbeat packet.
-    #[serde(rename = "timestamp")]
-    timestamp: SystemTime,
+/// Create a new heartbeat packet.
+fn create_heartbeat() -> Result<Heartbeat> {
+    let mut hb = Heartbeat::new();
+    let memory = MemoryFootprint::new()?;
 
-    /// Number of CPU cores installed on this judge node.
-    #[serde(rename = "cores")]
-    cores: u32,
+    hb.cores = get_cores()?;
+    hb.total_physical_memory = memory.total_physical_memory;
+    hb.free_physical_memory = memory.free_physical_memory;
+    hb.total_swap_space = memory.total_swap_space;
+    hb.free_swap_space = memory.free_swap_space;
+    hb.cached_swap_space = memory.cached_swap_space;
 
-    /// Total physical memory installed on this judge node, in bytes.
-    #[serde(rename = "totalPhysicalMemory")]
-    total_physical_memory: u64,
-
-    /// Free physical memory installed on this judge node, in bytes.
-    #[serde(rename = "freePhysicalMemory")]
-    free_physical_memory: u64,
-
-    /// Total size of swap space, in bytes.
-    #[serde(rename = "totalSwapSpace")]
-    total_swap_space: u64,
-
-    /// Size of free swap space, in bytes.
-    #[serde(rename = "freeSwapSpace")]
-    free_swap_space: u64,
-
-    #[serde(rename = "cachedSwapSpace")]
-    cached_swap_space: u64,
+    Ok(hb)
 }
-
-impl Heartbeat {
-    /// Create a new `Heartbeat` value.
-    fn new() -> Result<Heartbeat> {
-        let memory = MemoryFootprint::new()?;
-        Ok(Heartbeat {
-            timestamp: SystemTime::now(),
-            cores: get_cores()?,
-            total_physical_memory: memory.total_physical_memory,
-            free_physical_memory: memory.free_physical_memory,
-            total_swap_space: memory.total_swap_space,
-            free_swap_space: memory.free_swap_space,
-            cached_swap_space: memory.cached_swap_space
-        })
-    }
-}
-
-impl crate::restful::Heartbeat for Heartbeat { }
 
 /// The minimal number of seconds between two adjacent heartbeat packets.
 const MIN_HEARTBEAT_INTERVAL: u64 = 3;
@@ -118,7 +84,7 @@ fn heartbeat_daemon_entry(options: HeartbeatDaemonOptions) {
     loop {
         std::thread::sleep(heartbeat_interval);
 
-        let heartbeat = match Heartbeat::new() {
+        let heartbeat = match create_heartbeat() {
             Ok(hb) => hb,
             Err(e) => {
                 log::error!("failed to create heartbeat packet: {}", e);

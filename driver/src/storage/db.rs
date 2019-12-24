@@ -25,8 +25,8 @@ pub struct SqliteConnection {
 impl SqliteConnection {
     /// Create a new `SqliteConnection` instance connecting to a sqlite database instance stored
     /// in the specified file.
-    pub fn new<P>(path: P) -> Result<Self>
-        where P: AsRef<Path> {
+    pub fn new<P>(path: &P) -> Result<Self>
+        where P: ?Sized + AsRef<Path> {
         let raw = Connection::open(path)?;
         Ok(SqliteConnection { raw: Mutex::new(raw) })
     }

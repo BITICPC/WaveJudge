@@ -6,11 +6,10 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::sync::Arc;
 
-use serde::{Serialize, Deserialize};
-
-use crate::common::{ObjectId, LanguageTriple};
-use crate::db::SqliteConnection;
 use crate::restful::RestfulClient;
+use crate::restful::entities::{ObjectId, LanguageTriple, ProblemInfo, JudgeMode};
+
+use super::db::SqliteConnection;
 
 error_chain::error_chain! {
     types {
@@ -18,7 +17,7 @@ error_chain::error_chain! {
     }
 
     links {
-        DbError(crate::db::Error, crate::db::ErrorKind);
+        DbError(super::db::Error, super::db::ErrorKind);
         RestfulError(crate::restful::Error, crate::restful::ErrorKind);
     }
 
@@ -27,61 +26,36 @@ error_chain::error_chain! {
     }
 }
 
-/// Represent the kind of judge mode.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub enum JudgeModeKind {
-    /// Standard judge mode.
-    Standard,
-
-    /// Special judge.
-    SpecialJudge,
-
-    /// Interactive judge mode.
-    Interactive,
-}
-
 /// Provide metadata about a problem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ProblemMetadata {
     /// The ID of the problem.
-    #[serde(rename = "id")]
     pub id: ObjectId,
 
     /// The judge mode of the problem.
-    #[serde(rename = "judgeMode")]
-    pub judge_mode: JudgeModeKind,
+    pub judge_mode: JudgeMode,
 
     /// The time limit of the problem, in milliseconds.
-    #[serde(rename = "timeLimit")]
     pub time_limit: u64,
 
     /// The memory limit of the problem, in megabytes.
-    #[serde(rename = "memoryLimit")]
     pub memory_limit: u64,
 
     /// The source code of the jury, if the `judge_mode` is `JudgeMode::SpecialJudge` or
     /// `JudgeMode::Interactive`.
-    #[serde(rename = "jurySource")]
-    #[serde(default)]
     pub jury_src: Option<String>,
 
     /// The language of the jury program.
-    #[serde(rename = "juryLanguage")]
-    #[serde(default)]
     pub jury_lang: Option<LanguageTriple>,
 
     /// Path to the jury's executable, if the `judge_mode` is `JudgeMode::SpecialJudge` or
     /// `JudgeMode::Interactive`.
-    #[serde(skip_deserializing)]
     pub jury_exec_path: Option<PathBuf>,
 
     /// The ID of the test archive.
-    #[serde(rename = "archiveId")]
     pub archive_id: ObjectId,
 
     /// Timestamp of the last update time of this metadata.
-    #[serde(rename = "timestamp")]
     pub timestamp: u64,
 }
 
@@ -97,9 +71,9 @@ impl ProblemMetadata {
         };
 
         let judge_mode = match row[1].as_integer() {
-            Some(0) => JudgeModeKind::Standard,
-            Some(1) => JudgeModeKind::SpecialJudge,
-            Some(2) => JudgeModeKind::Interactive,
+            Some(0) => JudgeMode::Standard,
+            Some(1) => JudgeMode::SpecialJudge,
+            Some(2) => JudgeMode::Interactive,
             _ => return None
         };
 
@@ -160,7 +134,7 @@ impl ProblemMetadata {
     /// problem is either `JudgeMode::SpecialJudge` or `JudgeMode::Interactive`.
     pub fn has_jury(&self) -> bool {
         match self.judge_mode {
-            JudgeModeKind::SpecialJudge | JudgeModeKind::Interactive => true,
+            JudgeMode::SpecialJudge | JudgeMode::Interactive => true,
             _ => false
         }
     }
@@ -233,7 +207,30 @@ impl ProblemMetadata {
     }
 }
 
-impl crate::restful::ProblemInfo for ProblemMetadata { }
+impl From<ProblemInfo> for ProblemMetadata {
+    fn from(pi: ProblemInfo) -> Self {
+        let jury_src = match pi.judge_mode {
+            JudgeMode::Standard => None,
+            _ => Some(pi.jury_src)
+        };
+        let jury_lang = match pi.judge_mode {
+            JudgeMode::Standard => None,
+            _ => Some(pi.jury_lang)
+        };
+
+        ProblemMetadata {
+            id: pi.id,
+            judge_mode: pi.judge_mode,
+            time_limit: pi.time_limit,
+            memory_limit: pi.memory_limit,
+            jury_src,
+            jury_lang,
+            jury_exec_path: None,
+            archive_id: pi.archive_id,
+            timestamp: pi.timestamp,
+        }
+    }
+}
 
 /// Provide access to the problem metadata store.
 pub struct ProblemStore {
@@ -246,11 +243,18 @@ pub struct ProblemStore {
 
 impl ProblemStore {
     /// Create a new `ProblemStore` instance.
-    pub fn new(db: Arc<SqliteConnection>, rest: Arc<RestfulClient>) -> Self {
-        ProblemStore { db, rest }
+    pub(super) fn new(db: Arc<SqliteConnection>, rest: Arc<RestfulClient>) -> Result<Self> {
+        let store = ProblemStore { db, rest };
+        store.init_db()?;
+        Ok(store)
     }
 
-    pub fn init_db(&self) -> Result<()> {
+    fn init_db(&self) -> Result<()> {
+        if self.db.get_table_names()?.contains(&String::from("problems")) {
+            log::debug!("Table `problems` already exists in the sqlite database.");
+            return Ok(());
+        }
+
         log::info!("Creating table `problems` on sqlite database");
         self.db.execute(|conn| {
             conn.execute(r#"
@@ -292,7 +296,7 @@ impl ProblemStore {
             return Ok(cached_metadata.unwrap());
         }
 
-        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?;
+        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?.into();
         metadata.save(self.db.as_ref())?;
 
         Ok(metadata)
@@ -329,7 +333,7 @@ impl ProblemStore {
     /// Update the problem metadata for the specified problem. This function returns the updated problem
     /// metadata.
     pub fn update_problem_metadata_force(&self, id: ObjectId) -> Result<ProblemMetadata> {
-        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?;
+        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?.into();
         metadata.save(self.db.as_ref())?;
         Ok(metadata)
     }

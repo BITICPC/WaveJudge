@@ -2,12 +2,15 @@
 //! judge board server's REST APIs.
 //!
 
+pub mod entities;
+
 use std::io::Write;
 use std::sync::Mutex;
 
 use reqwest::{Client as HttpClient, Response, Url};
 use serde::Serialize;
-use serde::de::DeserializeOwned;
+
+use entities::{ObjectId, Heartbeat, ProblemInfo, SubmissionInfo};
 
 error_chain::error_chain! {
     types {
@@ -108,28 +111,33 @@ impl RestfulClient {
     }
 
     /// Send a heartbeat packet to the judge board.
-    pub fn patch_heartbeat<H>(&self, hb: &H) -> Result<()>
-        where H: Heartbeat {
+    pub fn patch_heartbeat(&self, hb: &Heartbeat) -> Result<()> {
         self.patch("/judges", hb)
     }
 
     /// Download the given test archive and save to the given output device.
-    pub fn download_archive<T1, T2>(&self, archive_id: T1, output: &mut T2) -> Result<()>
-        where T1: ToString, T2: ?Sized + Write {
+    pub fn download_archive<O>(&self, archive_id: ObjectId, output: &mut O) -> Result<()>
+        where O: ?Sized + Write {
         let path = format!("/archives/{}", archive_id.to_string());
         self.download(path, output)
     }
 
     /// Get problem information.
-    pub fn get_problem_info<T, P>(&self, problem_id: T) -> Result<P>
-        where T: ToString, P: ProblemInfo {
+    pub fn get_problem_info(&self, problem_id: ObjectId) -> Result<ProblemInfo> {
         let path = format!("/problems/{}", problem_id.to_string());
         self.get(path)?.json().map_err(Error::from)
     }
+
+    /// Get an unjudged submission from the judge board server.
+    pub fn get_submission(&self) -> Result<Option<SubmissionInfo>> {
+        let mut response = self.get("/submissions")?;
+        if response.status() == 200 {
+            let submission: SubmissionInfo = response.json()?;
+            Ok(Some(submission))
+        } else if response.status() == 204 {
+            Ok(None)
+        } else {
+            Err(Error::from(ErrorKind::NonSuccessfulStatusCode(response.status().as_u16())))
+        }
+    }
 }
-
-/// Provide a trait for heartbeat values.
-pub trait Heartbeat : Serialize { }
-
-/// Provide a trait for problem info values.
-pub trait ProblemInfo : DeserializeOwned { }

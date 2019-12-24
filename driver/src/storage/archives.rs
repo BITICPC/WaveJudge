@@ -15,8 +15,8 @@ use serde::{Serialize, Deserialize};
 use zip::ZipArchive;
 use zip::read::ZipFile;
 
-use crate::common::ObjectId;
 use crate::restful::RestfulClient;
+use crate::restful::entities::ObjectId;
 
 error_chain::error_chain! {
     types {
@@ -68,7 +68,10 @@ impl Display for TestArchiveCorruption {
     }
 }
 
+/// Extension of the input files inside a test archive.
 const INPUT_FILE_EXTENSION: &'static str = "in";
+
+/// Extension of the answer files inside a test archive.
 const ANSWER_FILE_EXTENSION: &'static str = "ans";
 
 /// Represent the kind of an entry in the test archive.
@@ -455,14 +458,14 @@ pub struct ArchiveStore {
     /// The root directory of the archive store on the local disk.
     root_dir: PathBuf,
 
-    /// The REST client to the judge board server.
+    /// The RESTful client connected to the judge board server.
     rest: Arc<RestfulClient>,
 }
 
 impl ArchiveStore {
     /// Create a new `ArchiveStore` instance.
-    pub fn new<P>(dir: P, rest: Arc<RestfulClient>) -> ArchiveStore
-        where P: AsRef<Path> {
+    pub(super) fn new<P>(dir: &P, rest: Arc<RestfulClient>) -> ArchiveStore
+        where P: ?Sized + AsRef<Path> {
         let dir = dir.as_ref();
         ArchiveStore {
             root_dir: dir.to_owned(),
@@ -527,7 +530,10 @@ impl ArchiveStore {
     /// Get archive with the given ID. If the archive does not exist on the local disk, this
     /// function will request the judge board to download it. This function will not return until
     /// the archive is ready or something goes wrong.
-    pub fn get_archive(&self, id: ObjectId) -> Result<TestArchiveHandle> {
+    ///
+    /// `rest` is a `RestfulClient` object that has connected to the judge board through which the
+    /// missing archive will be downloaded.
+    pub fn get_or_download(&self, id: ObjectId) -> Result<TestArchiveHandle> {
         let archive_dir = self.get_archive_dir(id);
         if !archive_dir.exists() {
             self.download_archive(id, &archive_dir)?;

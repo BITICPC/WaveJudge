@@ -17,26 +17,21 @@ extern crate clap;
 extern crate judge;
 extern crate sandbox;
 
-mod archives;
-mod common;
 mod config;
-mod db;
 mod forkserver;
 mod heartbeat;
 mod init;
 mod restful;
-mod problems;
+mod storage;
 mod utils;
 mod workers;
 
 use std::sync::Arc;
 
-use archives::ArchiveStore;
 use config::AppConfig;
 use forkserver::ForkServerClient;
-use db::SqliteConnection;
-use problems::ProblemStore;
 use restful::RestfulClient;
+use storage::AppStorageFacade;
 
 error_chain::error_chain! {
     types {
@@ -57,17 +52,11 @@ struct AppContext {
     /// The fork server client.
     fork_server: Arc<ForkServerClient>,
 
-    /// The sqlite database connection.
-    db: Arc<SqliteConnection>,
-
     /// The RESTful client.
     rest: Arc<RestfulClient>,
 
-    /// Test archives store.
-    archives: ArchiveStore,
-
-    /// Problem metadata store.
-    problems: ProblemStore,
+    /// The storage facade of this application.
+    storage: AppStorageFacade,
 }
 
 fn do_main() -> Result<()> {
