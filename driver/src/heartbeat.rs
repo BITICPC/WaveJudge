@@ -3,9 +3,12 @@
 //!
 
 use std::time::{Duration, SystemTime};
+use std::sync::Arc;
 
 use procfs::{CpuInfo, Meminfo};
 use serde::Serialize;
+
+use crate::restful::RestfulClient;
 
 error_chain::error_chain! {
     types {
@@ -105,13 +108,12 @@ impl Heartbeat {
 impl crate::restful::Heartbeat for Heartbeat { }
 
 /// The minimal number of seconds between two adjacent heartbeat packets.
-const MIN_HEARTBEAT_INTERVAL: u32 = 3;
+const MIN_HEARTBEAT_INTERVAL: u64 = 3;
 
 /// This function is the entry point of the heartbeat daemon thread.
-fn heartbeat_daemon_entry() {
-    let config = crate::config::app_config();
+fn heartbeat_daemon_entry(options: HeartbeatDaemonOptions) {
     let heartbeat_interval = Duration::from_secs(
-        *crate::utils::max(&config.cluster.heartbeat_interval, &MIN_HEARTBEAT_INTERVAL) as u64);
+        *crate::utils::max(&options.heartbeat_interval, &MIN_HEARTBEAT_INTERVAL) as u64);
 
     loop {
         std::thread::sleep(heartbeat_interval);
@@ -124,7 +126,7 @@ fn heartbeat_daemon_entry() {
             }
         };
 
-        match crate::restful::patch_heartbeat(&heartbeat) {
+        match options.rest.patch_heartbeat(&heartbeat) {
             Ok(..) => (),
             Err(e) => log::error!("failed to send heartbeat packet: {}", e)
         };
@@ -133,7 +135,16 @@ fn heartbeat_daemon_entry() {
     }
 }
 
+/// Provide options for heartbeat daemons.
+pub struct HeartbeatDaemonOptions {
+    /// The RESTful client, connected to the judge board server.
+    pub rest: Arc<RestfulClient>,
+
+    /// The interval between two consecutive heartbeat packets, in seconds.
+    pub heartbeat_interval: u64,
+}
+
 /// Start the heartbeat daemon thread.
-pub fn start_daemon() {
-    std::thread::spawn(heartbeat_daemon_entry);
+pub fn start_daemon(options: HeartbeatDaemonOptions) {
+    std::thread::spawn(move || heartbeat_daemon_entry(options));
 }

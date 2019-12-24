@@ -19,6 +19,8 @@ use judge::{
     JudgeResult,
 };
 
+use crate::config::JudgeEngineConfig;
+
 error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
@@ -210,7 +212,7 @@ impl Drop for ForkServerClient {
 }
 
 /// Start the fork server.
-pub fn start_fork_server() -> Result<ForkServerClient> {
+pub fn start_fork_server(judge_engine_config: &JudgeEngineConfig) -> Result<ForkServerClient> {
     let sock_pair = ForkServerSocketPair::new()?;
 
     // The first component of sock_pair (`sock_pair.0`) will be passed to the client and the second
@@ -224,7 +226,7 @@ pub fn start_fork_server() -> Result<ForkServerClient> {
         ForkResult::Child => {
             // Close the first component of sock_pair and enter the fork server main.
             drop(sock_pair.0);
-            core::fork_server_main(sock_pair.1)?;
+            core::fork_server_main(judge_engine_config, sock_pair.1)?;
             unreachable!()
         }
     }

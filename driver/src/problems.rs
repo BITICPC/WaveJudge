@@ -4,10 +4,13 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::string::ToString;
+use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 
 use crate::common::{ObjectId, LanguageTriple};
+use crate::db::SqliteConnection;
+use crate::restful::RestfulClient;
 
 error_chain::error_chain! {
     types {
@@ -167,8 +170,8 @@ impl ProblemMetadata {
         self.jury_exec_path.is_some()
     }
 
-    /// Save the metadata into the underlying sqlite database.
-    pub fn save(&self) -> Result<()> {
+    /// Save the metadata into the sqlite database through the given database connection.
+    fn save(&self, conn: &SqliteConnection) -> Result<()> {
         let id = format!("'{}'", self.id.to_string());
         let judge_mode = self.judge_mode as i32;
         let time_limit = self.time_limit;
@@ -222,8 +225,8 @@ impl ProblemMetadata {
             jury_lang_id, jury_lang_dialect, jury_lang_version, jury_exec_path,
             archive_id, timestamp);
 
-        crate::db::execute(|conn| {
-            conn.execute(stmt)
+        conn.execute(|sqlite| {
+            sqlite.execute(stmt)
         })?;
 
         Ok(())
@@ -232,100 +235,102 @@ impl ProblemMetadata {
 
 impl crate::restful::ProblemInfo for ProblemMetadata { }
 
-/// Get the cached problem metadata
-pub fn get_problem_metadata(id: ObjectId) -> Result<ProblemMetadata> {
-    let cached_metadata = crate::db::execute(|conn| -> Result<Option<ProblemMetadata>> {
-        let mut cursor = conn
-            .prepare("SELECT * FROM problems WHERE id = ?")?
-            .cursor();
-        cursor.bind(&[sqlite::Value::String(id.to_string())])?;
+/// Provide access to the problem metadata store.
+pub struct ProblemStore {
+    /// Connection to the sqlite database containing problem metadata.
+    db: Arc<SqliteConnection>,
 
-        if let Some(row) = cursor.next()? {
-            Ok(ProblemMetadata::from_db_row(row))
-        } else {
-            Ok(None)
-        }
-    })?;
-    if cached_metadata.is_some() {
-        return Ok(cached_metadata.unwrap());
-    }
-
-    let metadata: ProblemMetadata = crate::restful::get_problem_info(id)?;
-    metadata.save()?;
-
-    Ok(metadata)
+    /// RESTful client connected to the judge board server.
+    rest: Arc<RestfulClient>,
 }
 
-/// Get the last update timestamp of the specified problem's metadata.
-fn get_problem_timestamp(id: ObjectId) -> Result<Option<u64>> {
-    let id_str = id.to_string();
-    crate::db::execute(move |conn| {
-        let mut cursor = conn.prepare("SELECT timestamp FROM problems WHERE id = ?")?
-                             .cursor();
-        cursor.bind(&[sqlite::Value::String(id_str)])?;
-        match cursor.next()? {
-            Some(v) => match v[0].as_integer() {
-                Some(i) => Ok(Some(crate::utils::bitcast::<i64, u64>(i))),
+impl ProblemStore {
+    /// Create a new `ProblemStore` instance.
+    pub fn new(db: Arc<SqliteConnection>, rest: Arc<RestfulClient>) -> Self {
+        ProblemStore { db, rest }
+    }
+
+    pub fn init_db(&self) -> Result<()> {
+        log::info!("Creating table `problems` on sqlite database");
+        self.db.execute(|conn| {
+            conn.execute(r#"
+                CREATE TABLE problems(
+                    id                  TEXT PRIMARY KEY,
+                    judge_mode          INTEGER,
+                    time_limit          INTEGER,
+                    memory_limit        INTEGER,
+                    jury_src            TEXT,
+                    jury_lang_id        TEXT,
+                    jury_lang_dialect   TEXT,
+                    jury_lang_version   TEXT,
+                    jury_exec_path      TEXT,
+                    archive_id          TEXT,
+                    timestamp           INTEGER
+                );
+            "#)
+        })?;
+        log::info!("Successfully created table `problems`");
+
+        Ok(())
+    }
+
+    /// Get the problem metadata of the specified problem.
+    pub fn get_problem_metadata(&self, id: ObjectId) -> Result<ProblemMetadata> {
+        let cached_metadata = self.db.execute(|conn| -> Result<Option<ProblemMetadata>> {
+            let mut cursor = conn
+                .prepare("SELECT * FROM problems WHERE id = ?")?
+                .cursor();
+            cursor.bind(&[sqlite::Value::String(id.to_string())])?;
+
+            if let Some(row) = cursor.next()? {
+                Ok(ProblemMetadata::from_db_row(row))
+            } else {
+                Ok(None)
+            }
+        })?;
+        if cached_metadata.is_some() {
+            return Ok(cached_metadata.unwrap());
+        }
+
+        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?;
+        metadata.save(self.db.as_ref())?;
+
+        Ok(metadata)
+    }
+
+    /// Get the last update timestamp of the specified problem's metadata.
+    pub fn get_problem_timestamp(&self, id: ObjectId) -> Result<Option<u64>> {
+        let id_str = id.to_string();
+        self.db.execute(move |conn| {
+            let mut cursor = conn.prepare("SELECT timestamp FROM problems WHERE id = ?")?
+                                .cursor();
+            cursor.bind(&[sqlite::Value::String(id_str)])?;
+            match cursor.next()? {
+                Some(v) => match v[0].as_integer() {
+                    Some(i) => Ok(Some(crate::utils::bitcast::<i64, u64>(i))),
+                    None => Ok(None)
+                },
                 None => Ok(None)
-            },
-            None => Ok(None)
+            }
+        })
+    }
+
+    /// Update the problem metadata for the specified problem if the timestamp of the cached problem
+    /// metadata is before the given one. This function returns the updated problem metadata.
+    pub fn update_problem_metadata(&self, id: ObjectId, timestamp: u64) -> Result<ProblemMetadata> {
+        let cached_timestamp = self.get_problem_timestamp(id)?;
+        if cached_timestamp.is_some() && cached_timestamp.unwrap() >= timestamp {
+            self.get_problem_metadata(id)
+        } else {
+            self.update_problem_metadata_force(id)
         }
-    })
-}
-
-/// Update the problem metadata for the specified problem if the timestamp of the cached problem
-/// metadata is before the given one. This function returns the updated problem metadata.
-pub fn update_problem_metadata(id: ObjectId, timestamp: u64) -> Result<ProblemMetadata> {
-    let cached_timestamp = get_problem_timestamp(id)?;
-    if cached_timestamp.is_some() && cached_timestamp.unwrap() >= timestamp {
-        get_problem_metadata(id)
-    } else {
-        update_problem_metadata_force(id)
-    }
-}
-
-/// Update the problem metadata for the specified problem. This function returns the updated problem
-/// metadata.
-pub fn update_problem_metadata_force(id: ObjectId) -> Result<ProblemMetadata> {
-    let metadata: ProblemMetadata = crate::restful::get_problem_info(id)?;
-    metadata.save()?;
-    Ok(metadata)
-}
-
-/// The name of the problem table.
-const PROBLEMS_TABLE_NAME: &'static str = "problems";
-
-/// Initialize the underlying database used in the problem repository.
-fn init_db() -> Result<()> {
-    log::info!("Creating table `problems` on sqlite database");
-    crate::db::execute(|conn| {
-        conn.execute(r#"
-            CREATE TABLE problems(
-                id                  TEXT PRIMARY KEY,
-                judge_mode          INTEGER,
-                time_limit          INTEGER,
-                memory_limit        INTEGER,
-                jury_src            TEXT,
-                jury_lang_id        TEXT,
-                jury_lang_dialect   TEXT,
-                jury_lang_version   TEXT,
-                jury_exec_path      TEXT,
-                archive_id          TEXT,
-                timestamp           INTEGER
-            );
-        "#)
-    })?;
-    log::info!("Successfully created table `problems`");
-
-    Ok(())
-}
-
-/// Initialize problem repository.
-pub fn init() -> Result<()> {
-    log::info!("Initializing problem repository");
-    if !crate::db::get_table_names()?.contains(&String::from(PROBLEMS_TABLE_NAME)) {
-        init_db()?;
     }
 
-    Ok(())
+    /// Update the problem metadata for the specified problem. This function returns the updated problem
+    /// metadata.
+    pub fn update_problem_metadata_force(&self, id: ObjectId) -> Result<ProblemMetadata> {
+        let metadata: ProblemMetadata = self.rest.get_problem_info(id)?;
+        metadata.save(self.db.as_ref())?;
+        Ok(metadata)
+    }
 }

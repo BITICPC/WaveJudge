@@ -23,40 +23,51 @@ mod config;
 mod db;
 mod forkserver;
 mod heartbeat;
+mod init;
 mod restful;
 mod problems;
 mod utils;
+mod workers;
 
-use std::path::Path;
+use std::sync::Arc;
+
+use archives::ArchiveStore;
+use config::AppConfig;
+use forkserver::ForkServerClient;
+use db::SqliteConnection;
+use problems::ProblemStore;
+use restful::RestfulClient;
 
 error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
     }
 
-    foreign_links {
-        IoError(::std::io::Error);
-        SerdeYamlError(::serde_yaml::Error);
-        LogError(::log4rs::Error);
-    }
-
-    errors {
-        InvalidConfigFile {
-            description("invalid config file")
-        }
+    links {
+        InitializationError(init::Error, init::ErrorKind);
+        WorkerError(workers::Error, workers::ErrorKind);
     }
 }
 
-fn init_log<P>(log_config_file: P) -> Result<()>
-    where P: AsRef<Path> {
-    log4rs::init_file(log_config_file, log4rs::file::Deserializers::default())?;
-    Ok(())
-}
+/// Provide application wide context for worker threads.
+struct AppContext {
+    /// The application wide configuration.
+    config: Arc<AppConfig>,
 
-fn init_app_config<P>(config_file: P) -> Result<()>
-    where P: AsRef<Path> {
-    crate::config::init_config(config_file)?;
-    Ok(())
+    /// The fork server client.
+    fork_server: Arc<ForkServerClient>,
+
+    /// The sqlite database connection.
+    db: Arc<SqliteConnection>,
+
+    /// The RESTful client.
+    rest: Arc<RestfulClient>,
+
+    /// Test archives store.
+    archives: ArchiveStore,
+
+    /// Problem metadata store.
+    problems: ProblemStore,
 }
 
 fn do_main() -> Result<()> {
@@ -80,17 +91,9 @@ fn do_main() -> Result<()> {
             .required(false)
             .default_value("config/app.yaml"))
         .get_matches();
-
-    let log_config_file_path = arg_matches.value_of("log_config_file")
-        .expect("failed to get path to log file");
-    init_log(log_config_file_path)?;
-
-    let config_file = arg_matches.value_of("config_file")
-        .expect("failed to get path to the configuration file");
-    init_app_config(config_file)?;
-
-    // TODO: Implement do_main().
-    unimplemented!()
+    let context = init::init(arg_matches)?;
+    workers::run(Arc::new(context))?;
+    Ok(())
 }
 
 fn main() {

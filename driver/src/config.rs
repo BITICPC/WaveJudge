@@ -3,14 +3,32 @@
 
 use std::path::{Path, PathBuf};
 
-use log::info;
 use serde::Deserialize;
 
-use crate::{Error, ErrorKind, ResultExt, Result};
+error_chain::error_chain! {
+    types {
+        Error, ErrorKind, ResultExt, Result;
+    }
+
+    foreign_links {
+        IoError(::std::io::Error);
+        SerdeYamlError(::serde_yaml::Error);
+    }
+
+    errors {
+        InvalidConfigFile {
+            description("invalid config file")
+        }
+    }
+}
+
 
 /// Provide application wide configurations.
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
+    /// Number of workers.
+    pub workers: u32,
+
     /// Judge cluster related configurations.
     pub cluster: ClusterConfig,
 
@@ -19,6 +37,24 @@ pub struct AppConfig {
 
     /// Judge engine related configurations.
     pub engine: JudgeEngineConfig,
+}
+
+impl AppConfig {
+    /// Load configuration information from the specified file.
+    pub fn from_file<P>(path: P) -> Result<Self>
+        where P: AsRef<Path> {
+        let path = path.as_ref();
+        log::info!("Loading application configuration from file: {}", path.display());
+
+        let config_content = std::fs::read_to_string(path)
+            .chain_err(|| Error::from(ErrorKind::InvalidConfigFile))
+            ?;
+        let config: AppConfig = serde_yaml::from_str(&config_content)
+            .chain_err(|| Error::from(ErrorKind::InvalidConfigFile))
+            ?;
+
+        Ok(config)
+    }
 }
 
 /// Provide cluster related configurations.
@@ -70,36 +106,6 @@ pub struct JudgeEngineConfig {
 
     /// System call whitelist for the jury (the answer checkers and the interactors) process.
     pub jury_syscall_whitelist: Vec<String>,
-}
-
-/// The application wide singleton object of application configuration.
-static mut SINGLETON: Option<AppConfig> = None;
-
-/// Get an `AppConfig` value containing application wide configurations. This function panics if
-/// the configuration has not been initialized.
-pub fn app_config() -> &'static AppConfig {
-    unsafe {
-        SINGLETON.as_ref().unwrap()
-    }
-}
-
-/// Initialize configuration from the specified file. This function panics if the configuration has
-/// already been initialized.
-pub fn init_config<T: AsRef<Path>>(config_file: T) -> Result<()> {
-    info!("Initializing application configuration from file: {}", config_file.as_ref().display());
-
-    let config_content = std::fs::read_to_string(config_file)
-        .chain_err(|| Error::from(ErrorKind::InvalidConfigFile))
-        ?;
-    let config: AppConfig = serde_yaml::from_str(&config_content)
-        .chain_err(|| Error::from(ErrorKind::InvalidConfigFile))
-        ?;
-
-    unsafe {
-        SINGLETON.replace(config).unwrap();
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

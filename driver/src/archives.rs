@@ -9,13 +9,14 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::Once;
+use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 use zip::ZipArchive;
 use zip::read::ZipFile;
 
 use crate::common::ObjectId;
+use crate::restful::RestfulClient;
 
 error_chain::error_chain! {
     types {
@@ -453,23 +454,20 @@ impl<'a> TestCaseInfo<'a> {
 pub struct ArchiveStore {
     /// The root directory of the archive store on the local disk.
     root_dir: PathBuf,
+
+    /// The REST client to the judge board server.
+    rest: Arc<RestfulClient>,
 }
 
-static mut SINGLETON: Option<ArchiveStore> = None;
-static SINGLETON_ONCE: Once = Once::new();
-
 impl ArchiveStore {
-    /// Initialize the singleton `ArchiveStore` object.
-    pub fn init() {
-        SINGLETON_ONCE.call_once(|| {
-            let config = crate::config::app_config();
-            let archive_root_dir = config.storage.archive_dir.clone();
-            unsafe {
-                SINGLETON = Some(ArchiveStore {
-                    root_dir: archive_root_dir
-                });
-            }
-        });
+    /// Create a new `ArchiveStore` instance.
+    pub fn new<P>(dir: P, rest: Arc<RestfulClient>) -> ArchiveStore
+        where P: AsRef<Path> {
+        let dir = dir.as_ref();
+        ArchiveStore {
+            root_dir: dir.to_owned(),
+            rest
+        }
     }
 
     /// Get the directory containing the content of the archive with the specified ID.
@@ -515,7 +513,7 @@ impl ArchiveStore {
         // Create a temporary file and download the test archive from the judge board server.
         log::info!("Downloading archive {}", id);
         let mut archive_file = tempfile::tempfile()?;
-        crate::restful::download_archive(id, &mut archive_file)?;
+        self.rest.download_archive(id, &mut archive_file)?;
 
         log::info!("Verifying archive {}", id);
         archive_file.seek(SeekFrom::Start(0))?;

@@ -21,13 +21,16 @@ use super::{Error, Result};
 use super::{Command, CommandResult};
 use super::ForkServerSocket;
 
+use crate::config::JudgeEngineConfig as AppJudgeEngineConfig;
+
 /// The entry point of the fork server. This function should never returns on normal execution.
-pub(super) fn fork_server_main(mut socket: ForkServerSocket) -> Result<()> {
+pub(super) fn fork_server_main(config: &AppJudgeEngineConfig, mut socket: ForkServerSocket)
+    -> Result<()> {
     // TODO: Change the return type of this function from `Result<()>` to `Result<!>` after the
     // TODO: never type `!` stablize.
 
     log::info!("Initializing fork server");
-    let handler = CommandHandler::new();
+    let handler = CommandHandler::new(config);
     log::info!("Fork server started");
 
     loop {
@@ -38,24 +41,23 @@ pub(super) fn fork_server_main(mut socket: ForkServerSocket) -> Result<()> {
     }
 }
 
-/// Get the judge engine configuration from the application wide configuration.
-fn get_judge_engine_config() -> JudgeEngineConfig {
-    let app_config = crate::config::app_config();
+/// Get the judge engine configuration from the given application wide judge engine configuration.
+fn get_judge_engine_config(app_config: &AppJudgeEngineConfig) -> JudgeEngineConfig {
     let mut engine_config = JudgeEngineConfig::new();
 
-    engine_config.judge_uid = match super::io::lookup_uid(&app_config.engine.judge_username) {
+    engine_config.judge_uid = match super::io::lookup_uid(&app_config.judge_username) {
         Ok(Some(uid)) => Some(uid),
         Ok(None) => {
-            log::warn!("Cannot lookup user: {}", app_config.engine.judge_username);
+            log::warn!("Cannot lookup user: {}", app_config.judge_username);
             None
         },
         Err(e) => {
-            log::error!("Failed to lookup user: {}: {}", app_config.engine.judge_username, e);
+            log::error!("Failed to lookup user: {}: {}", app_config.judge_username, e);
             None
         }
     };
 
-    engine_config.judge_dir = Some(app_config.engine.judge_dir.clone());
+    engine_config.judge_dir = Some(app_config.judge_dir.clone());
 
     fn syscall_convert_and_push<T>(name: T, output: &mut Vec<SystemCall>)
         where T: AsRef<str> {
@@ -70,18 +72,18 @@ fn get_judge_engine_config() -> JudgeEngineConfig {
         output.push(syscall);
     }
 
-    for syscall_name in &app_config.engine.judgee_syscall_whitelist {
+    for syscall_name in &app_config.judgee_syscall_whitelist {
         syscall_convert_and_push(syscall_name, &mut engine_config.judgee_syscall_whitelist);
     }
 
     engine_config.jury_cpu_time_limit = Some(
-        Duration::from_millis(app_config.engine.jury_cpu_time_limit));
+        Duration::from_millis(app_config.jury_cpu_time_limit));
     engine_config.jury_real_time_limit = Some(
-        Duration::from_millis(app_config.engine.jury_real_time_limit));
+        Duration::from_millis(app_config.jury_real_time_limit));
     engine_config.jury_memory_limit = Some(
-        MemorySize::MegaBytes(app_config.engine.jury_memory_limit));
+        MemorySize::MegaBytes(app_config.jury_memory_limit));
 
-    for syscall_name in &app_config.engine.jury_syscall_whitelist {
+    for syscall_name in &app_config.jury_syscall_whitelist {
         syscall_convert_and_push(syscall_name, &mut engine_config.jury_syscall_whitelist);
     }
 
@@ -98,8 +100,8 @@ struct CommandHandler {
 
 impl CommandHandler {
     /// Create and initializes a new `CommandHandler`.
-    fn new() -> Self {
-        let engine_config = get_judge_engine_config();
+    fn new(app_config: &AppJudgeEngineConfig) -> Self {
+        let engine_config = get_judge_engine_config(app_config);
         CommandHandler {
             judge_engine: JudgeEngine::with_config(engine_config)
         }
