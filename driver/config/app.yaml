@@ -8,11 +8,14 @@ cluster:
     heartbeat_interval: 5
 
 storage:
+    # Path to the sqlite database file.
+    db_file: "path/to/db/file"
+
     # Path to the directory containing test archives.
     archive_dir: "/archive/dir"
 
-    # Path to the sqlite database file.
-    db_file: "path/to/db/file"
+    # Path to the direction containing jury executable files.
+    jury_dir: "/jury/dir"
 
 engine:
     # The directory used for judging.
