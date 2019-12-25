@@ -26,7 +26,7 @@ fn clocks_per_sec() -> i64 {
 
     let ret = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
     if ret == -1 {
-        warn!("Failed to get system clock speed through sysconf. Use CLOCKS_PER_SEC instead.");
+        log::warn!("Failed to get system clock speed through sysconf. Use CLOCKS_PER_SEC instead.");
         CLOCKS_PER_SEC
     } else {
         ret

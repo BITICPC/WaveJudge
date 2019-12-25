@@ -3,7 +3,6 @@
 
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use std::time::SystemTime;
 
 use serde::{Serialize, Deserialize, Serializer};
 use serde::de::{Deserializer, Visitor, Unexpected};

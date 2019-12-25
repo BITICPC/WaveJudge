@@ -158,9 +158,9 @@ fn daemon_main(context: &ProcessDaemonContext) -> Result<ProcessExitStatus> {
     let timer = SystemTime::now();
 
     loop {
-        trace!("Daemon calling wait...");
+        log::trace!("Daemon calling wait...");
         let wait_status = wait_guard.wait(wait_flag)?;
-        trace!("Daemon loop with wait status: {:?}", wait_status);
+        log::trace!("Daemon loop with wait status: {:?}", wait_status);
 
         match wait_status {
             WaitStatus::Exited(_, exit_code) =>
@@ -178,7 +178,7 @@ fn daemon_main(context: &ProcessDaemonContext) -> Result<ProcessExitStatus> {
         let overall_usage = daemon_update_rusage(context.pid,
             &mut *context.rusage.lock().unwrap())?;
 
-        trace!("Daemon updated resource usage: {:?}", overall_usage);
+        log::trace!("Daemon updated resource usage: {:?}", overall_usage);
 
         if has_daemon_limits {
             // Checks current usage statistics against the pre-set limits.
@@ -201,7 +201,7 @@ fn daemon_main(context: &ProcessDaemonContext) -> Result<ProcessExitStatus> {
 /// given context. This function returns a `JoinHandle` instance representing a handle to the daemon
 /// thread.
 pub fn start(context: Arc<Box<ProcessDaemonContext>>) -> DaemonThreadJoinHandle {
-    trace!("Starting daemon thread...");
+    log::trace!("Starting daemon thread...");
     std::thread::spawn(move || {
         let exit_status = match daemon_main(&**context) {
             Ok(exit_status) => exit_status,

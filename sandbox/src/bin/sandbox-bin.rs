@@ -44,12 +44,14 @@ struct ApplicationConfig {
     pub real_time_limit: Option<Duration>,
     pub memory_limit: Option<MemorySize>,
 
+    pub working_dir: Option<PathBuf>,
+    pub root_dir: Option<PathBuf>,
+    pub uid: Option<UserId>,
+    pub syscall_whitelist: Vec<SystemCall>,
+
     pub input_file: Option<PathBuf>,
     pub output_file: Option<PathBuf>,
     pub error_file: Option<PathBuf>,
-
-    pub uid: Option<UserId>,
-    pub syscall_whitelist: Vec<SystemCall>
 }
 
 impl ApplicationConfig {
@@ -58,14 +60,19 @@ impl ApplicationConfig {
             file: PathBuf::new(),
             args: Vec::new(),
             envs: Vec::new(),
+
             cpu_time_limit: None,
             real_time_limit: None,
             memory_limit: None,
+
+            working_dir: None,
+            root_dir: None,
+            uid: None,
+            syscall_whitelist: Vec::new(),
+
             input_file: None,
             output_file: None,
             error_file: None,
-            uid: None,
-            syscall_whitelist: Vec::new()
         }
     }
 }
@@ -125,6 +132,16 @@ fn get_app_config() -> Result<ApplicationConfig> {
             .multiple(true)
             .value_terminator("--")
             .help("specify the names of allowed system call"))
+        .arg(clap::Arg::with_name("working_dir")
+            .long("workdir")
+            .takes_value(true)
+            .value_name("WORKING_DIR")
+            .help("specify the working directory of the sandbox process"))
+        .arg(clap::Arg::with_name("root_dir")
+            .long("rootdir")
+            .takes_value(true)
+            .value_name("ROOT_DIR")
+            .help("specify the root directory of the sandbox process"))
         .arg(clap::Arg::with_name("envs")
             .long("env")
             .takes_value(true)
@@ -217,6 +234,16 @@ fn get_app_config() -> Result<ApplicationConfig> {
         None => ()
     };
 
+    match matches.value_of("working_dir") {
+        Some(work_dir) => config.working_dir = Some(PathBuf::from(work_dir)),
+        None => ()
+    };
+
+    match matches.value_of("root_dir") {
+        Some(root_dir) => config.root_dir = Some(PathBuf::from(root_dir)),
+        None => ()
+    }
+
     Ok(config)
 }
 
@@ -255,7 +282,15 @@ fn do_main() -> Result<()> {
 
     builder.uid = config.uid;
     for syscall in config.syscall_whitelist {
-        builder.allow_syscall(syscall);
+        builder.syscall_whitelist.push(syscall);
+    }
+
+    if config.working_dir.is_some() {
+        builder.dir.working_dir = config.working_dir.clone();
+    }
+
+    if config.root_dir.is_some() {
+        builder.dir.root_dir = config.root_dir.clone();
     }
 
     let mut process = builder.start()?;

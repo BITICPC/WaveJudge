@@ -13,9 +13,7 @@
 //! * Process syscall filter: filter out unexpected syscalls by seccomp feature.
 //!
 
-#[macro_use]
 extern crate log;
-#[macro_use]
 extern crate error_chain;
 extern crate libc;
 extern crate nix;
@@ -35,6 +33,7 @@ use std::cmp::Ordering;
 use std::ffi::CString;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,7 +41,6 @@ use std::time::Duration;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::AsRawFd;
 
-use nix::sys::signal::Signal;
 use nix::unistd::{Uid, Pid, ForkResult};
 
 #[cfg(feature = "serde")]
@@ -51,7 +49,7 @@ use serde::{Serialize, Deserialize};
 use daemon::{ProcessDaemonContext, DaemonThreadJoinHandle};
 use rlimits::Resource;
 
-error_chain! {
+error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
     }
@@ -137,6 +135,13 @@ impl Ord for MemorySize {
     }
 }
 
+impl Hash for MemorySize {
+    fn hash<H>(&self, state: &mut H)
+        where H: Hasher {
+        state.write_usize(self.bytes());
+    }
+}
+
 impl From<usize> for MemorySize {
     fn from(value: usize) -> MemorySize {
         MemorySize::Bytes(value)
@@ -185,7 +190,7 @@ impl SystemCall {
 
         let id = unsafe { seccomp_sys::seccomp_syscall_resolve_name(name_cstr.as_ptr()) };
         if id < 0 {
-            debug!("Unknown syscall name: \"{}\"", name);
+            log::debug!("Unknown syscall name: \"{}\"", name);
             return Err(Error::from(ErrorKind::InvalidSystemCallName));
         }
 
@@ -206,6 +211,15 @@ impl Display for SystemCall {
 impl PartialEq for SystemCall {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+impl Eq for SystemCall { }
+
+impl Hash for SystemCall {
+    fn hash<H>(&self, state: &mut H)
+        where H: Hasher {
+        state.write_i32(self.id);
     }
 }
 
@@ -272,7 +286,33 @@ impl Default for ProcessRedirection {
     }
 }
 
-/// Type for representing a user identification.
+/// Specify some special directories for the child process.
+#[derive(Debug, Clone)]
+pub struct ProcessDirectory {
+    /// Working directory of the child process.
+    pub working_dir: Option<PathBuf>,
+
+    /// Root directory of the child process.
+    pub root_dir: Option<PathBuf>,
+}
+
+impl ProcessDirectory {
+    /// Create a new `ProcessDirectory` value.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for ProcessDirectory {
+    fn default() -> Self {
+        ProcessDirectory {
+            working_dir: None,
+            root_dir: None,
+        }
+    }
+}
+
+/// Provide a type for user IDs.
 pub type UserId = u32;
 
 /// Provide mechanism to build a child process in sandboxed environment.
@@ -286,8 +326,8 @@ pub struct ProcessBuilder {
     /// Environment variables passed to the child process.
     envs: Vec<(String, String)>,
 
-    /// Working directory of the child process.
-    pub working_dir: Option<PathBuf>,
+    /// Special directories for the child process.
+    pub dir: ProcessDirectory,
 
     /// Limits to be applied to the new child process.
     pub limits: ProcessResourceLimits,
@@ -298,14 +338,14 @@ pub struct ProcessBuilder {
     /// applied.
     pub use_native_rlimit: bool,
 
-    /// Redirections to be applied to the new child process.
-    pub redirections: ProcessRedirection,
-
     /// Effective user ID of the new child process.
     pub uid: Option<UserId>,
 
     /// A list of allowed syscalls for the new child process.
-    syscall_whitelist: Vec<SystemCall>,
+    pub syscall_whitelist: Vec<SystemCall>,
+
+    /// Redirections to be applied to the new child process.
+    pub redirections: ProcessRedirection,
 }
 
 impl ProcessBuilder {
@@ -316,7 +356,8 @@ impl ProcessBuilder {
             file: file.into(),
             args: Vec::with_capacity(1),
             envs: Vec::new(),
-            working_dir: None,
+
+            dir: ProcessDirectory::new(),
 
             limits: ProcessResourceLimits::empty(),
             use_native_rlimit: false,
@@ -341,8 +382,8 @@ impl ProcessBuilder {
             self.args.push(arg);
             Ok(())
         } else {
-            debug!("Invalid process argument: \"{}\"", arg);
-            bail!(ErrorKind::InvalidProcessArgument);
+            log::debug!("Invalid process argument: \"{}\"", arg);
+            error_chain::bail!(ErrorKind::InvalidProcessArgument);
         }
     }
 
@@ -353,20 +394,21 @@ impl ProcessBuilder {
         let value = value.into();
 
         if !misc::is_valid_c_string(&name) {
-            debug!("Invalid environment variable name: \"{}\": not a valid C string.", name);
-            bail!(ErrorKind::InvalidEnvironmentVariable);
+            log::debug!("Invalid environment variable name: \"{}\": not a valid C string.", name);
+            error_chain::bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if !misc::is_valid_c_string(&value) {
-            debug!("Invalid environment variable value: \"{}\": not a valid C string.", value);
-            bail!(ErrorKind::InvalidEnvironmentVariable);
+            log::debug!("Invalid environment variable value: \"{}\": not a valid C string.", value);
+            error_chain::bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if name.as_bytes().contains(&b'=') {
-            debug!("Invalid environment variable name: \"{}\": contains a equal sign.", name);
-            bail!(ErrorKind::InvalidEnvironmentVariable);
+            log::debug!("Invalid environment variable name: \"{}\": contains a equal sign.", name);
+            error_chain::bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if value.as_bytes().contains(&b'=') {
-            debug!("Invalid environment variable value: \"{}\": contains a equal sign.", value);
-            bail!(ErrorKind::InvalidEnvironmentVariable);
+            log::debug!(
+                "Invalid environment variable value: \"{}\": contains a equal sign.", value);
+            error_chain::bail!(ErrorKind::InvalidEnvironmentVariable);
         }
 
         self.envs.push((name, value));
@@ -382,15 +424,14 @@ impl ProcessBuilder {
         }
     }
 
-    /// Mark the given syscall as allowed in the child process.
-    pub fn allow_syscall(&mut self, sc: SystemCall) {
-        self.syscall_whitelist.push(sc)
-    }
+    /// Apply special directories for the child process.
+    fn apply_directories(&self) -> Result<()> {
+        if self.dir.working_dir.is_some() {
+            nix::unistd::chdir(self.dir.working_dir.as_ref().unwrap())?;
+        }
 
-    /// Apply working directory changes to the calling process.
-    fn apply_working_directory(&self) -> Result<()> {
-        if self.working_dir.is_some() {
-            nix::unistd::chdir(self.working_dir.as_ref().unwrap().as_path())?;
+        if self.dir.root_dir.is_some() {
+            nix::unistd::chroot(self.dir.root_dir.as_ref().unwrap())?;
         }
 
         Ok(())
@@ -469,6 +510,9 @@ impl ProcessBuilder {
         // Build argv and envs into native format.
         let native_file = CString::new(Vec::from(self.file.as_os_str().as_bytes()))
             .unwrap();
+
+        // Strings used in arguments and environment variables are guaranteed to be valid C-style
+        // string when they were set so we directly unwraps them below.
         let native_argv = self.args.iter()
             .map(|arg| CString::new(arg.clone()).unwrap())
             .collect::<Vec<CString>>();
@@ -483,8 +527,8 @@ impl ProcessBuilder {
         // Set current effective user ID if necessary.
         self.apply_uid()?;
 
-        // Apply working directory changes.
-        self.apply_working_directory()?;
+        // Apply special directory changes.
+        self.apply_directories()?;
 
         // Apply native resource limits.
         self.apply_native_rlimits()?;
@@ -501,7 +545,7 @@ impl ProcessBuilder {
     /// Initializes any necessary components in the parent process to monitor the states of the
     /// child process. This function should be called after `fork` in the parent process.
     fn start_parent(self, child_pid: Pid) -> Process {
-        trace!("Starting parent process daemon...");
+        log::trace!("Starting parent process daemon...");
 
         let daemon_limits = if self.use_native_rlimit {
             None
@@ -510,6 +554,23 @@ impl ProcessBuilder {
         };
 
         Process::attach(child_pid, daemon_limits)
+    }
+
+    /// Create a `ProcessBuilderMemento` object containing the internal status of the current
+    /// `ProcessBuilder` object. The redirection configuration will not be stored in the returned
+    /// memento, which means you need to manually reset them to proper values after restoring from
+    /// mementos.
+    pub fn create_memento(&self) -> ProcessBuilderMemento {
+        ProcessBuilderMemento {
+            file: self.file.clone(),
+            args: self.args.clone(),
+            envs: self.envs.clone(),
+            dir: self.dir.clone(),
+            limits: self.limits.clone(),
+            use_native_rlimit: self.use_native_rlimit,
+            uid: self.uid,
+            syscall_whitelist: self.syscall_whitelist.clone(),
+        }
     }
 
     /// Start the process in a sandboxed environment.
@@ -523,7 +584,8 @@ impl ProcessBuilder {
                         eprintln!("failed to start child process: {}", e);
                         // Send a `SIGUSR1` signal to self to terminate self and notify the daemon
                         // thread.
-                        nix::sys::signal::kill(nix::unistd::getpid(), Signal::SIGUSR1)
+                        let sig = nix::sys::signal::Signal::SIGUSR1;
+                        nix::sys::signal::kill(nix::unistd::getpid(), sig)
                             .expect("cannot kill self.");
                         // Sit in a tight loop, wait to be killed by the delivery of the `SIGUSR1`
                         // signal whose default handling behavior is killing the target process.
@@ -535,8 +597,87 @@ impl ProcessBuilder {
     }
 }
 
-/// Type for the exit codes of processes.
-pub type ProcessExitCode = i32;
+impl From<ProcessBuilderMemento> for ProcessBuilder {
+    fn from(memento: ProcessBuilderMemento) -> Self {
+        ProcessBuilder {
+            file: memento.file,
+            args: memento.args,
+            envs: memento.envs,
+            dir: memento.dir,
+            limits: memento.limits,
+            use_native_rlimit: memento.use_native_rlimit,
+            uid: memento.uid,
+            syscall_whitelist: memento.syscall_whitelist,
+            redirections: ProcessRedirection::empty(),
+        }
+    }
+}
+
+/// Save the internal status of a `ProcessBuilder` object.
+#[derive(Clone, Debug)]
+pub struct ProcessBuilderMemento {
+    /// Path to the executable file.
+    file: PathBuf,
+
+    /// Arguments passed to the child process.
+    args: Vec<String>,
+
+    /// Environment variables passed to the child process.
+    envs: Vec<(String, String)>,
+
+    /// Special directories for the child process.
+    dir: ProcessDirectory,
+
+    /// Limits to be applied to the new child process.
+    limits: ProcessResourceLimits,
+
+    /// Whether to use native rlimit mechanism to limit the resource usage of the child process.
+    use_native_rlimit: bool,
+
+    /// Effective user ID of the new child process.
+    uid: Option<UserId>,
+
+    /// A list of allowed syscalls for the new child process.
+    syscall_whitelist: Vec<SystemCall>,
+}
+
+impl ProcessBuilderMemento {
+    /// Restore `ProcessBuilder` object
+    pub fn restore(&self) -> ProcessBuilder {
+        ProcessBuilder {
+            file: self.file.clone(),
+            args: self.args.clone(),
+            envs: self.envs.clone(),
+            dir: self.dir.clone(),
+            limits: self.limits.clone(),
+            use_native_rlimit: self.use_native_rlimit,
+            uid: self.uid,
+            syscall_whitelist: self.syscall_whitelist.clone(),
+            redirections: ProcessRedirection::empty(),
+        }
+    }
+}
+
+impl From<ProcessBuilder> for ProcessBuilderMemento {
+    fn from(builder: ProcessBuilder) -> Self {
+        ProcessBuilderMemento {
+            file: builder.file,
+            args: builder.args,
+            envs: builder.envs,
+            dir: builder.dir,
+            limits: builder.limits,
+            use_native_rlimit: builder.use_native_rlimit,
+            uid: builder.uid,
+            syscall_whitelist: builder.syscall_whitelist,
+        }
+    }
+}
+
+/// Provide a type for process exit code.
+pub type ExitCode = i32;
+
+/// Provide a type for Unix signals.
+pub type Signal = i32;
 
 /// Exit status of a sandboxed process.
 #[derive(Clone, Debug)]
@@ -546,10 +687,10 @@ pub enum ProcessExitStatus {
     NotExited,
 
     /// The process exited normally.
-    Normal(ProcessExitCode),
+    Normal(ExitCode),
 
     /// The process was killed by the delivery of a signal.
-    KilledBySignal(i32),
+    KilledBySignal(Signal),
 
     /// The process was killed by the daemon due to CPU time limit.
     CPUTimeLimitExceeded,
@@ -567,7 +708,7 @@ pub enum ProcessExitStatus {
 
 impl ProcessExitStatus {
     /// Get the exit code, if there is any.
-    pub fn exit_code(&self) -> Option<i32> {
+    pub fn exit_code(&self) -> Option<ExitCode> {
         use ProcessExitStatus::*;
         match self {
             Normal(code) => Some(*code),
@@ -675,7 +816,7 @@ pub struct Process {
 impl Process {
     /// Create a new `Process` instance attaching to the specific process.
     fn attach(pid: Pid, limits: Option<ProcessResourceLimits>) -> Process {
-        trace!("Process::attach to process ID {}", pid.as_raw());
+        log::trace!("Process::attach to process ID {}", pid.as_raw());
 
         let mut handle = Process {
             pid,
@@ -684,7 +825,7 @@ impl Process {
         };
 
         let daemon_handle = daemon::start(handle.context.clone());
-        trace!("Daemon thread started");
+        log::trace!("Daemon thread started");
         handle.daemon = Some(daemon_handle);
 
         handle

@@ -361,12 +361,13 @@ impl JudgeEngine {
         // Set effective user ID and syscall whitelist for the judgee.
         judgee_proc_bdr.uid = self.config.judge_uid;
         for syscall in &self.config.judgee_syscall_whitelist {
-            judgee_proc_bdr.allow_syscall(syscall.clone());
+            judgee_proc_bdr.syscall_whitelist.push(syscall.clone());
         }
 
-        // Set working directory.
+        // Set special directories.
         if self.config.judge_dir.is_some() {
-            judgee_proc_bdr.working_dir = self.config.judge_dir.clone();
+            judgee_proc_bdr.dir.working_dir = self.config.judge_dir.clone();
+            judgee_proc_bdr.dir.root_dir = self.config.judge_dir.clone();
         }
 
         // Prepare file descriptors used for redirections.
@@ -426,9 +427,10 @@ impl JudgeEngine {
         let mut checker_output = TempFile::new()?;
         checker_bdr.redirections.stdout = Some(checker_output.file.duplicate()?);
 
-        // Set working directory.
+        // Set special directories.
         if self.config.judge_dir.is_some() {
-            checker_bdr.working_dir = self.config.judge_dir.clone();
+            checker_bdr.dir.working_dir = self.config.judge_dir.clone();
+            checker_bdr.dir.root_dir = self.config.judge_dir.clone();
         }
 
         // Pass input file, answer file and judgee's output file to the custom checker via command
@@ -441,7 +443,7 @@ impl JudgeEngine {
 
         checker_bdr.uid = self.config.judge_uid;
         for syscall in &self.config.jury_syscall_whitelist {
-            checker_bdr.allow_syscall(syscall.clone());
+            checker_bdr.syscall_whitelist.push(syscall.clone());
         }
 
         // Execute the checker.

@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate error_chain;
 extern crate clap;
 extern crate judge;
@@ -8,8 +7,7 @@ use std::str::FromStr;
 
 use error_chain::ChainedError;
 
-
-error_chain! {
+error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
     }
