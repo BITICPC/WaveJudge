@@ -92,11 +92,6 @@ impl<'de> Visitor<'de> for ObjectIdDeserializeVisitor {
 /// A heartbeat packet.
 #[derive(Debug, Serialize, Clone)]
 pub struct Heartbeat {
-    /// Timestamp of the heartbeat packet. The timestamp is represented by the number of seconds
-    /// elapsed from the UNIX_EPOCH (Jan. 1, 1970, 00:00:00 a.m.).
-    #[serde(rename = "timestamp")]
-    pub timestamp: u64,
-
     /// Number of CPU cores installed on this judge node.
     #[serde(rename = "cores")]
     pub cores: u32,
@@ -126,12 +121,7 @@ impl Heartbeat {
     /// Create a new `Heartbeat` value. This function panics if `SystemTime::duration_since`
     /// function fails when measuring elapsed number of seconds from `UNIX_EPOCH`.
     pub fn new() -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("failed to measure elapsed time since UNIX_EPOCH")
-            .as_secs();
         Heartbeat {
-            timestamp,
             cores: 0,
             total_physical_memory: 0,
             free_physical_memory: 0,
