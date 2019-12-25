@@ -106,7 +106,7 @@ fn handle_submission(submission: &SubmissionInfo, context: &AppContext)
     let compile_result = context.fork_server.compile_source(
         &submission.source,
         submission.language.to_judge_language(),
-        judge::CompilationScheme::Judgee)?;
+        judge::ProgramKind::Judgee)?;
     if !compile_result.succeeded {
         return Ok(SubmissionJudgeResult::compilation_failed(
             compile_result.compiler_out.unwrap_or_default()));

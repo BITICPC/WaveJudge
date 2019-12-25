@@ -13,8 +13,8 @@ use nix::sys::signal::Signal;
 use serde::{Serialize, Deserialize};
 
 use judge::{
+    ProgramKind,
     CompilationTaskDescriptor,
-    CompilationScheme,
     CompilationResult,
     JudgeTaskDescriptor,
     JudgeResult,
@@ -216,13 +216,13 @@ impl Drop for ForkServerClient {
 /// Provide extension functions for `ForkServerClient`.
 pub trait ForkServerClientExt {
     /// Compile the literal source code into executable file.
-    fn compile_source<T>(&self, source: &T, lang: LanguageIdentifier, scheme: CompilationScheme)
+    fn compile_source<T>(&self, source: &T, lang: LanguageIdentifier, kind: ProgramKind)
         -> Result<CompilationResult>
         where T: ?Sized + AsRef<str>;
 }
 
 impl ForkServerClientExt for ForkServerClient {
-    fn compile_source<T>(&self, source: &T, lang: LanguageIdentifier, scheme: CompilationScheme)
+    fn compile_source<T>(&self, source: &T, lang: LanguageIdentifier, kind: ProgramKind)
         -> Result<CompilationResult>
         where T: ?Sized + AsRef<str> {
         // Create a temp file to store the source code of jury.
@@ -235,7 +235,7 @@ impl ForkServerClientExt for ForkServerClient {
         // Create a temp directory for storing the output files of the compilation.
         let output_dir = tempfile::tempdir()?;
         task.output_dir = Some(output_dir.path().to_owned());
-        task.scheme = scheme;
+        task.kind = kind;
 
         // Execute the compilation job.
         let cmd = Command::Compile(task);

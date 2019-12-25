@@ -10,8 +10,9 @@
 //! logic for loading contents of this crate into the judge system.
 //!
 
-#[macro_use]
 extern crate log;
+extern crate serde;
+extern crate serde_yaml;
 extern crate judge;
 
 mod cxx;
@@ -32,9 +33,10 @@ pub struct InitLanguageError {
 
 impl InitLanguageError {
     /// Create a new `InitLanguageError` instance.
-    pub fn new<T: ToString>(message: T) -> Self {
+    pub fn new<T>(message: T) -> Self
+        where T: Into<String> {
         InitLanguageError {
-            message: message.to_string()
+            message: message.into()
         }
     }
 
@@ -66,11 +68,11 @@ pub extern "Rust" fn init_language_providers() -> Result<(), Box<dyn std::error:
     ];
 
     for (name, init) in &initializers {
-        info!("Initializing {} language providers...", name);
+        log::info!("Initializing {} language providers...", name);
         match init() {
             Ok(..) => (),
             Err(e) => {
-                error!("Failed to initialize {} language providers: {}", name, e);
+                log::error!("Failed to initialize {} language providers: {}", name, e);
                 return Err(e.into_boxed());
             }
         }

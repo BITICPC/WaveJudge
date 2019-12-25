@@ -69,12 +69,12 @@ type LoadFunction = unsafe extern fn() -> Result<(), Box<dyn std::error::Error>>
 pub fn load_dylib<T>(file: T) -> Result<(), LoadDylibError>
     where T: AsRef<Path> {
     let file = file.as_ref();
-    info!("Loading language provider library: \"{}\"...", file.display());
+    log::info!("Loading language provider library: \"{}\"...", file.display());
 
     match load_dylib_impl(file) {
         Ok(..) => Ok(()),
         Err(e) => {
-            error!("Failed to load language provider library \"{}\": {}", file.display(), e);
+            log::error!("Failed to load language provider library \"{}\": {}", file.display(), e);
             Err(e)
         }
     }

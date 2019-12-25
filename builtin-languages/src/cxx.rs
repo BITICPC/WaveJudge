@@ -3,19 +3,19 @@
 
 
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Once;
+
+use serde::Deserialize;
 
 use judge::{
     Program,
-    CompilationScheme,
+    ProgramKind,
 };
 use judge::languages::{
     LanguageBranch,
     LanguageProvider,
     LanguageProviderMetadata,
     LanguageManager,
-    ExecutionScheme
 };
 use judge::engine::{
     CompilationInfo,
@@ -23,7 +23,7 @@ use judge::engine::{
 };
 
 use crate::InitLanguageError;
-
+use crate::utils::Config;
 
 static mut C_METADATA: Option<LanguageProviderMetadata> = None;
 static mut CPP_METADATA: Option<LanguageProviderMetadata> = None;
@@ -63,59 +63,37 @@ fn init_metadata() {
     });
 }
 
-const WAVETESTLIB_LIB_NAME: &'static str = "wavetest";
-
-const WAVETESTLIB_INCLUDE_DIR_ENV: &'static str = "WAVETESTLIB_INCLUDE_DIR";
-const WAVETESTLIB_LIB_DIR_ENV: &'static str = "WAVETESTLIB_LIB_DIR";
-
-fn get_testlib_include_dir() -> Option<PathBuf> {
-    std::env::var(WAVETESTLIB_INCLUDE_DIR_ENV).ok()
-        .map(|v| PathBuf::from_str(&v).unwrap())
-}
-
-fn get_testlib_lib_dir() -> Option<PathBuf> {
-    std::env::var(WAVETESTLIB_LIB_DIR_ENV).ok()
-        .map(|v| PathBuf::from_str(&v).unwrap())
-}
-
-/// Provide environment related information to C/C++ language provider.
-#[derive(Clone, Debug)]
-struct CXXEnvironment {
-    /// Path to the directory containing header files of wave test lib.
+/// Provide configuration for CXX language providers.
+#[derive(Debug, Clone, Deserialize)]
+struct CXXLanguageConfig {
+    /// Path to the directory containing header files of WaveTestLib.
     testlib_include_dir: PathBuf,
 
-    /// Path to the directory containing binary files of wave test lib.
-    testlib_lib_dir: PathBuf
+    /// Path to the directory containing library files of WaveTestLib.
+    testlib_lib_dir: PathBuf,
 }
 
-impl CXXEnvironment {
-    /// Create a new `CXXEnvironment` whose information is collected from the current context.
-    fn new() -> Result<CXXEnvironment, InitLanguageError> {
-        let testlib_include_dir = get_testlib_include_dir()
-            .ok_or_else(|| InitLanguageError::new(format!("Env variable \"{}\" not set.",
-                WAVETESTLIB_INCLUDE_DIR_ENV)))?;
-        let testlib_lib_dir = get_testlib_lib_dir()
-            .ok_or_else(|| InitLanguageError::new(format!("Env variable \"{}\" not set.",
-                WAVETESTLIB_LIB_DIR_ENV)))?;
+impl Config for CXXLanguageConfig { }
 
-        Ok(CXXEnvironment { testlib_include_dir, testlib_lib_dir })
-    }
-}
+/// Name of the WaveTestLib library.
+const WAVETESTLIB_LIB_NAME: &'static str = "wavetest";
 
 struct CXXLanguageProvider {
-    env: CXXEnvironment
+    config: CXXLanguageConfig,
 }
 
 impl CXXLanguageProvider {
-    fn new(env: CXXEnvironment) -> Self {
-        CXXLanguageProvider { env }
+    fn new(config: CXXLanguageConfig) -> Self {
+        CXXLanguageProvider { config }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, kind: ProgramKind, output_dir: Option<PathBuf>)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         let compiler = match (program.language.language(), program.language.dialect()) {
             ("c", "gnu") => PathBuf::from("gcc"),
-            ("cpp", "clang") => PathBuf::from("clang"),
+            ("c", "clang") => PathBuf::from("clang"),
+            ("cpp", "gnu") => PathBuf::from("g++"),
+            ("cpp", "clang") => PathBuf::from("clang++"),
             _ => panic!("unexpected language: ({}, {})",
                 program.language.language(), program.language.dialect())
         };
@@ -127,31 +105,24 @@ impl CXXLanguageProvider {
         ci.compiler.args.push(format!("-std={}", program.language.version()));
         ci.compiler.args.push(String::from("-DONLINE_JUDGE"));
 
-        match scheme {
-            // Add waveteslib directory to include and library directories.
-            CompilationScheme::Checker | CompilationScheme::Interactor => {
-                ci.compiler.args.push(format!("-I\"{}\"", self.env.testlib_include_dir.display()));
-                ci.compiler.args.push(format!("-L\"{}\"", self.env.testlib_lib_dir.display()));
-            },
-            _ => ()
-        };
+        if kind.is_jury() {
+            ci.compiler.args.push(
+                format!("-I\"{}\"", self.config.testlib_include_dir.display()));
+            ci.compiler.args.push(format!("-L\"{}\"", self.config.testlib_lib_dir.display()));
+        }
 
         ci.compiler.args.push(String::from("-o"));
         ci.compiler.args.push(format!("\"{}\"", output_file.display()));
         ci.compiler.args.push(format!("\"{}\"", program.file.display()));
 
-        match scheme {
-            // Push wavetestlib library to linker.
-            CompilationScheme::Checker | CompilationScheme::Interactor => {
-                ci.compiler.args.push(format!("-l{}", WAVETESTLIB_LIB_NAME));
-            },
-            _ => ()
-        };
+        if kind.is_jury() {
+            ci.compiler.args.push(format!("-l{}", WAVETESTLIB_LIB_NAME));
+        }
 
         Ok(ci)
     }
 
-    fn execute(&self, program: &Program, _scheme: ExecutionScheme)
+    fn execute(&self, program: &Program, _kind: ProgramKind)
         -> Result<ExecutionInfo, Box<dyn std::error::Error>> {
         Ok(ExecutionInfo::new(&program.file))
     }
@@ -165,9 +136,9 @@ struct CLanguageProvider {
 
 impl CLanguageProvider {
     /// Create a new `CLanguageProvider` instance.
-    fn new(env: CXXEnvironment) -> Self {
+    fn new(config: CXXLanguageConfig) -> Self {
         CLanguageProvider {
-            cxx_prov: CXXLanguageProvider::new(env)
+            cxx_prov: CXXLanguageProvider::new(config)
         }
     }
 }
@@ -177,14 +148,14 @@ impl LanguageProvider for CLanguageProvider {
         unsafe { C_METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, kind: ProgramKind, output_dir: Option<PathBuf>)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
-        self.cxx_prov.compile(program, output_dir, scheme)
+        self.cxx_prov.compile(program, kind, output_dir)
     }
 
-    fn execute(&self, program: &Program, scheme: ExecutionScheme)
+    fn execute(&self, program: &Program, kind: ProgramKind)
         -> Result<ExecutionInfo, Box<dyn std::error::Error>> {
-        self.cxx_prov.execute(program, scheme)
+        self.cxx_prov.execute(program, kind)
     }
 }
 
@@ -196,9 +167,9 @@ struct CPPLanguageProvider {
 
 impl CPPLanguageProvider {
     /// Create a new `CPPLanguageProvider` instance.
-    fn new(env: CXXEnvironment) -> Self {
+    fn new(config: CXXLanguageConfig) -> Self {
         CPPLanguageProvider {
-            cxx_prov: CXXLanguageProvider::new(env)
+            cxx_prov: CXXLanguageProvider::new(config)
         }
     }
 }
@@ -208,25 +179,28 @@ impl LanguageProvider for CPPLanguageProvider {
         unsafe { CPP_METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, kind: ProgramKind, output_dir: Option<PathBuf>)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
-        self.cxx_prov.compile(program, output_dir, scheme)
+        self.cxx_prov.compile(program, kind, output_dir)
     }
 
-    fn execute(&self, program: &Program, scheme: ExecutionScheme)
+    fn execute(&self, program: &Program, kind: ProgramKind)
         -> Result<ExecutionInfo, Box<dyn std::error::Error>> {
-        self.cxx_prov.execute(program, scheme)
+        self.cxx_prov.execute(program, kind)
     }
 }
+
+/// Name of the file containing CXX language configurations.
+const CXX_LANG_CONFIG_FILE_NAME: &'static str = "cpp-config.yaml";
 
 pub fn init_cxx_providers() -> Result<(), InitLanguageError> {
     init_metadata();
 
-    let env = CXXEnvironment::new()?;
+    let config = CXXLanguageConfig::from_file(CXX_LANG_CONFIG_FILE_NAME)?;
 
     let lang_mgr = LanguageManager::singleton();
-    lang_mgr.register(Box::new(CLanguageProvider::new(env.clone())));
-    lang_mgr.register(Box::new(CPPLanguageProvider::new(env.clone())));
+    lang_mgr.register(Box::new(CLanguageProvider::new(config.clone())));
+    lang_mgr.register(Box::new(CPPLanguageProvider::new(config.clone())));
 
     Ok(())
 }

@@ -11,7 +11,7 @@ use std::sync::{Arc, Once, RwLock};
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
 
-use super::{Program, CompilationScheme};
+use super::{Program, ProgramKind};
 use super::engine::{CompilationInfo, ExecutionInfo};
 
 
@@ -28,7 +28,7 @@ use super::engine::{CompilationInfo, ExecutionInfo};
 /// For example, suppose we have a language identifier (`cpp`, `clang`, `11`). The C++ language
 /// provider will be selected by this language identifier, and the language provider will choose to
 /// use `clang` compiler toolchains to compile source code with C++11 features available.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LanguageIdentifier(String, LanguageBranch);
 
@@ -76,7 +76,7 @@ impl Display for LanguageIdentifier {
 ///
 /// A branch of a language is a 2-tuple (String, String) whose first field represents the dialect of
 /// the language and second field represents the version of the language.
-#[derive(Clone, Eq, Debug)]
+#[derive(Clone, Eq, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LanguageBranch(String, String);
 
@@ -155,27 +155,13 @@ pub trait LanguageProvider : Sync {
 
     /// Create a `CompilationInfo` instance containing necessary information used to compile the
     /// source code.
-    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, kind: ProgramKind, output_dir: Option<PathBuf>)
         -> std::result::Result<CompilationInfo, Box<dyn std::error::Error>>;
 
     /// Create an `ExecutionInfo` instance containing necessary information used to execute the
     /// program.
-    fn execute(&self, program: &Program, scheme: ExecutionScheme)
+    fn execute(&self, program: &Program, kind: ProgramKind)
         -> std::result::Result<ExecutionInfo, Box<dyn std::error::Error>>;
-}
-
-/// Represent scheme of an execution.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum ExecutionScheme {
-    /// The program to be executed is a judgee.
-    Judgee,
-
-    /// The program to be executed is a checker.
-    Checker,
-
-    /// The program to be executed is an interactor.
-    Interactor
 }
 
 /// Provide centralized language management services. This structure and its related facilities are
@@ -200,7 +186,7 @@ impl LanguageManager {
     /// Get the singleton instance of `LanguageManager` in the application's global scope.
     pub fn singleton() -> Arc<LanguageManager> {
         LANG_MANAGER_ONCE.call_once(|| {
-            trace!("Initializing language manager");
+            log::trace!("Initializing language manager");
             unsafe {
                 LANG_MANAGER = Some(Arc::new(LanguageManager::new()));
             }
@@ -221,7 +207,7 @@ impl LanguageManager {
             lock.insert(metadata.name.clone(), vec![Arc::new(lang_prov)]);
         }
 
-        info!("Language provider for language \"{}\" registered.", metadata.name);
+        log::info!("Language provider for language \"{}\" registered.", metadata.name);
     }
 
     /// Find a `LanguageProvider` instance registered in this `LanguageManager` that is capable of

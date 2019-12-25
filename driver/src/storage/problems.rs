@@ -323,15 +323,15 @@ impl ProblemStore {
     /// due to compilation errors.
     fn compile_jury(&self, jury_src: &str, jury_lang: &LanguageTriple, judge_mode: JudgeMode)
         -> Result<Option<PathBuf>> {
-        let scheme = match judge_mode {
-            JudgeMode::SpecialJudge => judge::CompilationScheme::Checker,
-            JudgeMode::Interactive => judge::CompilationScheme::Interactor,
+        let kind = match judge_mode {
+            JudgeMode::SpecialJudge => judge::ProgramKind::Checker,
+            JudgeMode::Interactive => judge::ProgramKind::Interactor,
             _ => unreachable!()
         };
         let result = self.fork_server.compile_source(
             jury_src,
             jury_lang.to_judge_language(),
-            scheme)?;
+            kind)?;
 
         if !result.succeeded {
             log::error!("failed to compile jury: {}", result.compiler_out.unwrap_or_default());

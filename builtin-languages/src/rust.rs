@@ -4,12 +4,13 @@
 use crate::InitLanguageError;
 
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Once;
+
+use serde::Deserialize;
 
 use judge::{
     Program,
-    CompilationScheme
+    ProgramKind,
 };
 use judge::engine::{
     CompilationInfo,
@@ -20,8 +21,9 @@ use judge::languages::{
     LanguageProvider,
     LanguageProviderMetadata,
     LanguageManager,
-    ExecutionScheme
 };
+
+use crate::utils::Config;
 
 static mut METADATA: Option<LanguageProviderMetadata> = None;
 static METADATA_ONCE: Once = Once::new();
@@ -37,37 +39,25 @@ fn init_metadata() {
     });
 }
 
-const WAVETESTLIB_CRATE_DIR_ENV: &'static str = "WAVETESTLIB_CRATE_DIR";
-
-/// Provide environment related information of Rust programming language.
-struct RustEnvironment {
-    /// Path to the directory containing the wave test lib crate.
-    testlib_crate_dir: PathBuf
+/// Rust language configuration.
+#[derive(Clone, Debug, Deserialize)]
+struct RustLanguageConfig {
+    /// Path to the directory containing the Rust port of WaveTestLib.
+    testlib_dir: PathBuf,
 }
 
-impl RustEnvironment {
-    /// Create a new `RustEnvironment` instance whose information is collected from current
-    /// context.
-    fn new() -> Result<Self, InitLanguageError> {
-        let testlib_crate_dir = std::env::var(WAVETESTLIB_CRATE_DIR_ENV)
-            .map(|v| PathBuf::from_str(&v).unwrap())
-            .map_err(|_| InitLanguageError::new(format!("Env variable \"{}\" not set.",
-                WAVETESTLIB_CRATE_DIR_ENV)))
-            ?;
-        Ok(RustEnvironment { testlib_crate_dir })
-    }
-}
+impl Config for RustLanguageConfig { }
 
 /// Language provider of the Rust programming language.
 struct RustLanguageProvider {
-    /// Rust language environment.
-    env: RustEnvironment
+    /// Rust language configuration.
+    config: RustLanguageConfig
 }
 
 impl RustLanguageProvider {
     /// Create a new `RustLanguageProvider` instance.
-    fn new(env: RustEnvironment) -> Self {
-        RustLanguageProvider { env }
+    fn new(config: RustLanguageConfig) -> Self {
+        RustLanguageProvider { config }
     }
 }
 
@@ -76,7 +66,7 @@ impl LanguageProvider for RustLanguageProvider {
         unsafe { METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, program: &Program, output_dir: Option<PathBuf>, scheme: CompilationScheme)
+    fn compile(&self, program: &Program, kind: ProgramKind, output_dir: Option<PathBuf>)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         let output_file = crate::utils::make_output_file_path(&program.file, output_dir);
 
@@ -86,13 +76,10 @@ impl LanguageProvider for RustLanguageProvider {
         ci.compiler.args.push(String::from("--cfg"));
         ci.compiler.args.push(String::from("online_judge"));
 
-        match scheme {
-            CompilationScheme::Checker | CompilationScheme::Interactor => {
-                ci.compiler.args.push(String::from("-L"));
-                ci.compiler.args.push(String::from(self.env.testlib_crate_dir.to_str().unwrap()));
-            },
-            _ => ()
-        };
+        if kind.is_jury() {
+            ci.compiler.args.push(String::from("-L"));
+            ci.compiler.args.push(String::from(self.config.testlib_dir.to_str().unwrap()));
+        }
 
         ci.compiler.args.push(String::from("-o"));
         ci.compiler.args.push(format!("\"{}\"", program.file.display()));
@@ -100,20 +87,23 @@ impl LanguageProvider for RustLanguageProvider {
         Ok(ci)
     }
 
-    fn execute(&self, program: &Program, _scheme: ExecutionScheme)
+    fn execute(&self, program: &Program, _kind: ProgramKind)
         -> Result<ExecutionInfo, Box<dyn std::error::Error>> {
         Ok(ExecutionInfo::new(&program.file))
     }
 }
 
+/// Name of the file containing Rust language configurations.
+const RUST_CONFIG_FILE_NAME: &'static str = "rust-config.yaml";
+
 /// Initialize language providers for the Rust programming language.
 pub fn init_rust_providers() -> Result<(), InitLanguageError> {
     init_metadata();
 
-    let env = RustEnvironment::new()?;
+    let config = RustLanguageConfig::from_file(RUST_CONFIG_FILE_NAME)?;
 
     let lang_mgr = LanguageManager::singleton();
-    lang_mgr.register(Box::new(RustLanguageProvider::new(env)));
+    lang_mgr.register(Box::new(RustLanguageProvider::new(config)));
 
     Ok(())
 }

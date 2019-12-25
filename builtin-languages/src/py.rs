@@ -2,25 +2,26 @@
 //!
 
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Once;
 
+use serde::Deserialize;
+
 use crate::InitLanguageError;
+use crate::utils::Config;
 
 use judge::{
     Program,
-    CompilationScheme
+    ProgramKind,
 };
 use judge::engine::{
     CompilationInfo,
-    ExecutionInfo
+    ExecutionInfo,
 };
 use judge::languages::{
     LanguageBranch,
     LanguageProvider,
     LanguageProviderMetadata,
     LanguageManager,
-    ExecutionScheme
 };
 
 
@@ -40,40 +41,24 @@ fn init_metadata() {
     });
 }
 
-/// Name of the environment variable holding the path to the directory containing python module
-/// file of `WaveTestLib`.
-const WAVETESTLIB_DIR_ENV: &'static str = "WAVETESTLIB_PYMOD_DIR";
-
-/// Provide environment related information for the python language provider.
-struct PythonEnvironment {
-    /// Path to the directory containing python module file of `WaveTestLib`.
-    testlib_module_dir: PathBuf
+/// Provide configuration for python language providers.
+#[derive(Debug, Clone, Deserialize)]
+struct PythonLanguageConfig {
+    testlib_module_dir: PathBuf,
 }
 
-impl PythonEnvironment {
-    /// Create a new `PythonEnvironment` instance.
-    fn new() -> Result<PythonEnvironment, InitLanguageError> {
-        let testlib_module_dir = std::env::var(WAVETESTLIB_DIR_ENV)
-            .map_err(|_| InitLanguageError::new(format!("Env variable \"{}\" not set.",
-                WAVETESTLIB_DIR_ENV)))
-            ?;
-
-        Ok(PythonEnvironment {
-            testlib_module_dir: PathBuf::from_str(&testlib_module_dir).unwrap()
-        })
-    }
-}
+impl Config for PythonLanguageConfig { }
 
 /// Implement language provider for the Python programming language.
 struct PythonLanguageProvider {
     /// Python language environment.
-    env: PythonEnvironment
+    config: PythonLanguageConfig,
 }
 
 impl PythonLanguageProvider {
     /// Create a new `PythonLanguageProvider` instance.
-    fn new(env: PythonEnvironment) -> PythonLanguageProvider {
-        PythonLanguageProvider { env }
+    fn new(config: PythonLanguageConfig) -> PythonLanguageProvider {
+        PythonLanguageProvider { config }
     }
 }
 
@@ -82,37 +67,38 @@ impl LanguageProvider for PythonLanguageProvider {
         unsafe { METADATA.as_ref().unwrap() }
     }
 
-    fn compile(&self, _program: &Program, _output_dir: Option<PathBuf>, _scheme: CompilationScheme)
+    fn compile(&self, _program: &Program, _kind: ProgramKind, _output_dir: Option<PathBuf>)
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         // Because python is an interpreted language, this function is not reachable.
         unreachable!()
     }
 
-    fn execute(&self, program: &Program, scheme: ExecutionScheme)
+    fn execute(&self, program: &Program, kind: ProgramKind)
         -> Result<ExecutionInfo, Box<dyn std::error::Error>> {
         let mut ei = ExecutionInfo::new(format!("python{}", program.language.version()));
         ei.args.push(String::from("-OO"));
         ei.args.push(String::from("-B"));
 
-        match scheme {
-            ExecutionScheme::Checker | ExecutionScheme::Interactor => {
-                ei.envs.push((String::from("PYTHONPATH"),
-                    format!("{}", self.env.testlib_module_dir.display())));
-            },
-            _ => ()
-        };
+        if kind.is_jury() {
+            ei.envs.push((String::from("PYTHONPATH"),
+                format!("{}", self.config.testlib_module_dir.display())));
+        }
 
         ei.args.push(format!("\"{}\"", program.file.display()));
         Ok(ei)
     }
 }
 
+/// Name of the file containing python language provider configurations.
+const PYTHON_LANG_CONFIG_FILE_NAME: &'static str = "py-config.yaml";
+
 /// Initialize python language provider and related facilities.
 pub fn init_py_providers() -> Result<(), InitLanguageError> {
     init_metadata();
 
     let lang_mgr = LanguageManager::singleton();
-    lang_mgr.register(Box::new(PythonLanguageProvider::new(PythonEnvironment::new()?)));
+    let config = PythonLanguageConfig::from_file(PYTHON_LANG_CONFIG_FILE_NAME)?;
+    lang_mgr.register(Box::new(PythonLanguageProvider::new(config)));
 
     Ok(())
 }

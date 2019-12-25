@@ -27,8 +27,8 @@ use sandbox::{
 use crate::{Error, ErrorKind, Result};
 use super::{
     Program,
+    ProgramKind,
     CompilationTaskDescriptor,
-    CompilationScheme,
     CompilationResult,
     JudgeTaskDescriptor,
     JudgeMode,
@@ -42,7 +42,6 @@ use super::languages::{
     LanguageIdentifier,
     LanguageManager,
     LanguageProvider,
-    ExecutionScheme
 };
 use checkers::{Checker, CheckerContext};
 use io::{
@@ -128,11 +127,11 @@ impl JudgeEngine {
             .ok_or_else(|| Error::from(ErrorKind::LanguageNotFound(lang.clone())))
     }
 
-    /// Get necessary compilation information for compiling the given program under the given
-    /// scheme. This function can return `Ok(None)` to indicate that the given program need not to
-    /// be compiled before execution.
+    /// Get necessary compilation information for compiling the given program of the given kind.
+    /// This function can return `Ok(None)` to indicate that the given program need not to be
+    /// compiled before execution.
     fn get_compile_info(&self,
-        program: &Program, scheme: CompilationScheme, output_dir: Option<PathBuf>)
+        program: &Program, kind: ProgramKind, output_dir: Option<PathBuf>)
         -> Result<Option<CompilationInfo>> {
         let lang_provider = self.find_language_provider(&program.language)?;
         if lang_provider.metadata().interpreted {
@@ -140,7 +139,7 @@ impl JudgeEngine {
             // before execution.
             Ok(None)
         } else {
-            lang_provider.compile(program, output_dir, scheme)
+            lang_provider.compile(program, kind, output_dir)
                 .map(|info| Some(info))
                 .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
         }
@@ -148,10 +147,10 @@ impl JudgeEngine {
 
     /// Execute the given compilation task.
     pub fn compile(&self, task: CompilationTaskDescriptor) -> Result<CompilationResult> {
-        trace!("Compilation task: {:?}", task);
+        log::trace!("Compilation task: {:?}", task);
 
-        let compile_info = self.get_compile_info(&task.program, task.scheme, task.output_dir)?;
-        trace!("Compilation info: {:?}", compile_info);
+        let compile_info = self.get_compile_info(&task.program, task.kind, task.output_dir)?;
+        log::trace!("Compilation info: {:?}", compile_info);
 
         match compile_info {
             Some(info) => self.execute_compiler(info),
@@ -172,7 +171,7 @@ impl JudgeEngine {
         process_handle.wait_for_exit()?;
 
         let exit_status = process_handle.exit_status();
-        trace!("Compiler exited with status: {:?}", exit_status);
+        log::trace!("Compiler exited with status: {:?}", exit_status);
         match exit_status {
             ProcessExitStatus::Normal(0) =>
                 Ok(CompilationResult::succeed(compile_info.output_file.clone())),
@@ -195,10 +194,10 @@ impl JudgeEngine {
     }
 
     /// Get necessary execution information for executing the given program.
-    fn get_execution_info(&self, program: &Program, scheme: ExecutionScheme)
+    fn get_execution_info(&self, program: &Program, kind: ProgramKind)
         -> Result<ExecutionInfo> {
         let lang_provider = self.find_language_provider(&program.language)?;
-        lang_provider.execute(program, scheme)
+        lang_provider.execute(program, kind)
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
     }
 
@@ -207,11 +206,11 @@ impl JudgeEngine {
         let judgee_lang_prov = self.find_language_provider(&task.program.language)?;
 
         // Get execution information of the judgee.
-        trace!("Judge task: {:?}", task);
-        let judgee_exec_info = judgee_lang_prov.execute(&task.program, ExecutionScheme::Judgee)
+        log::trace!("Judge task: {:?}", task);
+        let judgee_exec_info = judgee_lang_prov.execute(&task.program, ProgramKind::Judgee)
             .map_err(|e| Error::from(ErrorKind::LanguageError(format!("{}", e))))
             ?;
-        trace!("Judgee execution info: {:?}", judgee_exec_info);
+        log::trace!("Judgee execution info: {:?}", judgee_exec_info);
 
         // Create judge context.
         let mut context = match task.mode {
@@ -220,14 +219,14 @@ impl JudgeEngine {
                 JudgeContext::standard(&task, judgee_exec_info, builtin_checker)
             },
             JudgeMode::SpecialJudge(ref checker) => {
-                let checker_exec_info = self.get_execution_info(checker, ExecutionScheme::Checker)?;
-                trace!("Checker execution info: {:?}", checker_exec_info);
+                let checker_exec_info = self.get_execution_info(checker, ProgramKind::Checker)?;
+                log::trace!("Checker execution info: {:?}", checker_exec_info);
                 JudgeContext::special_judge(&task, judgee_exec_info, checker_exec_info)
             },
             JudgeMode::Interactive(ref interactor) => {
                 let interactor_exec_info = self.get_execution_info(
-                    interactor, ExecutionScheme::Interactor)?;
-                trace!("Interactor execution info: {:?}", interactor_exec_info);
+                    interactor, ProgramKind::Interactor)?;
+                log::trace!("Interactor execution info: {:?}", interactor_exec_info);
                 JudgeContext::interactive(&task, judgee_exec_info, interactor_exec_info)
             }
         };
@@ -239,14 +238,14 @@ impl JudgeEngine {
     /// Execute judge on the given judge context.
     fn judge_on_context(&self, context: &mut JudgeContext) -> Result<()> {
         for test_case in context.task.test_suite.iter() {
-            trace!("Judging on test case {:?}", test_case);
+            log::trace!("Judging on test case {:?}", test_case);
 
             context.test_case = Some(TestCaseContext::new(test_case));
             self.judge_on_test_case(context)?;
 
             context.result.add_test_case_result(context.test_case.take().unwrap().result);
             if !context.result.verdict.is_accepted() {
-                trace!("Judgee failed test case. Stop judging.");
+                log::trace!("Judgee failed test case. Stop judging.");
                 break;
             }
         }
@@ -311,7 +310,7 @@ impl JudgeEngine {
         let checker = context.builtin_checker.unwrap();
         let checker_result = checker(&mut checker_context)?;
 
-        trace!("Result of built-in answer checker: {:?}", checker_result);
+        log::trace!("Result of built-in answer checker: {:?}", checker_result);
 
         test_case.result.comment = checker_result.comment;
         test_case.result.verdict = if checker_result.accepted {
@@ -391,8 +390,8 @@ impl JudgeEngine {
 
         let exit_status = process.exit_status();
         let rusage = process.rusage();
-        trace!("Judgee terminated with status: {:?}", exit_status);
-        trace!("Judgee's resource usage: {:?}", rusage);
+        log::trace!("Judgee terminated with status: {:?}", exit_status);
+        log::trace!("Judgee's resource usage: {:?}", rusage);
 
         test_case.result.set_judgee_exit_status(exit_status);
         test_case.result.rusage = rusage;
@@ -451,7 +450,7 @@ impl JudgeEngine {
         checker_proc.wait_for_exit()?;
 
         let exit_status = checker_proc.exit_status();
-        trace!("Checker terminated with status: {:?}", exit_status);
+        log::trace!("Checker terminated with status: {:?}", exit_status);
 
         // Read contents of the output stream of the checker process.
         checker_output.file.seek(SeekFrom::Start(0))?;

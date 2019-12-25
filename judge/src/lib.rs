@@ -1,9 +1,7 @@
 //! This crate implements the core logic of the judge.
 //!
 
-#[macro_use]
 extern crate error_chain;
-#[macro_use]
 extern crate log;
 extern crate libc;
 extern crate nix;
@@ -28,7 +26,7 @@ use sandbox::{MemorySize, ProcessResourceUsage, ProcessExitStatus};
 use languages::LanguageIdentifier;
 
 
-error_chain! {
+error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
     }
@@ -63,8 +61,8 @@ pub struct CompilationTaskDescriptor {
     /// The program to be compiled.
     pub program: Program,
 
-    /// The compilation scheme under which the program will be compiled.
-    pub scheme: CompilationScheme,
+    /// The kind of the program.
+    pub kind: ProgramKind,
 
     /// The optional output directory.
     pub output_dir: Option<PathBuf>,
@@ -75,24 +73,10 @@ impl CompilationTaskDescriptor {
     pub fn new(program: Program) -> Self {
         CompilationTaskDescriptor {
             program,
-            scheme: CompilationScheme::Judgee,
+            kind: ProgramKind::Judgee,
             output_dir: None
         }
     }
-}
-
-/// Represent the scheme of a compilation job.
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub enum CompilationScheme {
-    /// The program to be compiled is a judgee.
-    Judgee,
-
-    /// The program to be compiled is an answer checker.
-    Checker,
-
-    /// The program to be compiled is an interactor.
-    Interactor
 }
 
 /// Represent the result of a compilation job.
@@ -180,6 +164,31 @@ impl Program {
         Program {
             file: file.into(),
             language
+        }
+    }
+}
+
+/// Represent the kind of a program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum ProgramKind {
+    /// The program is a judgee.
+    Judgee,
+
+    /// The program is a checker.
+    Checker,
+
+    /// The program is an interactor.
+    Interactor
+}
+
+impl ProgramKind {
+    /// Determine if the execution is an execution of a jury program.
+    pub fn is_jury(&self) -> bool {
+        use ProgramKind::*;
+        match self {
+            Checker | Interactor => true,
+            _ => false
         }
     }
 }
