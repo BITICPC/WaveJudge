@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::os::unix::io::RawFd;
 
@@ -48,6 +50,33 @@ pub fn dup_and_cloexec(old_fd: RawFd, new_fd: RawFd) -> nix::Result<()> {
     Ok(())
 }
 
+/// Expand the `PATH` environment variable before the given path and returns the one that exists.
+pub fn expand_path<'a, P>(path: &'a P) -> Option<Cow<'a, Path>>
+    where P: ?Sized + AsRef<Path> {
+    let original = path.as_ref();
+    if original.exists() {
+        return Some(Cow::Borrowed(original));
+    }
+
+    if original.is_absolute() {
+        return None;
+    }
+
+    let path_env = match std::env::var_os("PATH") {
+        Some(p) => p.to_string_lossy().into_owned().to_owned(),
+        None => return None
+    };
+    for dir_path in path_env.split(':') {
+        let mut path = PathBuf::from(dir_path);
+        path.push(original);
+
+        if path.exists() {
+            return Some(Cow::Owned(path));
+        }
+    }
+
+    None
+}
 
 #[cfg(test)]
 mod tests {

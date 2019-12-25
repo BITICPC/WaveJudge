@@ -38,7 +38,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::AsRawFd;
 
 use nix::unistd::{Uid, Pid, ForkResult};
@@ -61,6 +60,11 @@ error_chain::error_chain! {
     }
 
     errors {
+        FileNotFound(path: PathBuf) {
+            description("could not find file"),
+            display("could not find file {}", path.display())
+        }
+
         InvalidProcessArgument {
             description("invalid argument to subprocess")
         }
@@ -507,9 +511,15 @@ impl ProcessBuilder {
 
         // Notes: No log messages are expected in the child process.
 
+        // Find the executable file by trying to expand the `PATH` environment variable before the
+        // file name.
+        let exec_file = match misc::expand_path(&self.file) {
+            Some(file) => file.into_owned(),
+            None => return Err(Error::from(ErrorKind::FileNotFound(self.file.clone())))
+        };
+
         // Build argv and envs into native format.
-        let native_file = CString::new(Vec::from(self.file.as_os_str().as_bytes()))
-            .unwrap();
+        let native_file = CString::new(exec_file.to_string_lossy().as_bytes()).unwrap();
 
         // Strings used in arguments and environment variables are guaranteed to be valid C-style
         // string when they were set so we directly unwraps them below.
