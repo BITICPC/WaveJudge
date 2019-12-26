@@ -3,80 +3,20 @@
 
 use std::fs::File;
 use std::io::Read;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::path::Path;
 
-use std::os::unix::io::{RawFd, FromRawFd, AsRawFd};
+use std::os::unix::io::{FromRawFd, AsRawFd};
 
 use crate::Result;
 
-
-/// Represent a pipe with a read end and a write end. The read end and the write end of the pipe can
-/// be manipulated independently.
-///
-/// The first field of the tuple struct is the read end, the second field of the tuple struct is the
-/// write end.
-pub struct Pipe(pub Option<File>, pub Option<File>);
-
-impl Pipe {
-    /// Create a new `Pipe` instance.
-    pub fn new() -> Result<Pipe> {
-        let (read_fd, write_fd) = nix::unistd::pipe()?;
-        Ok(Pipe::from_raw_fd(read_fd, write_fd))
-    }
-
-    /// Create a new `Pipe` instance whose 2 ends are constructed from raw file descriptors.
-    pub fn from_raw_fd(read_fd: RawFd, write_fd: RawFd) -> Pipe {
-        Pipe(
-            Some(unsafe { File::from_raw_fd(read_fd) }),
-            Some(unsafe { File::from_raw_fd(write_fd) })
-        )
-    }
-
-    /// Get a reference to the read end of the pipe.
-    pub fn read_end(&self) -> Option<&File> {
-        self.0.as_ref()
-    }
-
-    /// Get a mutable reference to the read end of the pipe.
-    pub fn read_end_mut(&mut self) -> Option<&mut File> {
-        self.0.as_mut()
-    }
-
-    /// Get a reference to the write end of the pipe.
-    pub fn write_end(&self) -> Option<&File> {
-        self.1.as_ref()
-    }
-
-    /// Get a mutable reference to the write end of the pipe.
-    pub fn write_end_mut(&mut self) -> Option<&mut File> {
-        self.1.as_mut()
-    }
-
-    /// Take ownership of the read end of the pipe, leaving `None` in the corresponding slot in this
-    /// `Pipe` instance.
-    pub fn take_read_end(&mut self) -> Option<File> {
-        self.0.take()
-    }
-
-    /// Take ownership of the write end of the pipe, leaving `None` in the corresponding slot in
-    /// this `Pipe` instance.
-    pub fn take_write_end(&mut self) -> Option<File> {
-        self.1.take()
-    }
-}
-
-impl Drop for Pipe {
-    fn drop(&mut self) {
-        match self.take_read_end() {
-            Some(file) => drop(file),
-            None => ()
-        };
-        match self.take_write_end() {
-            Some(file) => drop(file),
-            None => ()
-        }
-    }
+/// Create a new pipe. The first field of the returned tuple is the read end of the pipe and the
+/// second field of the returned tuple is the write end of the pipe.
+pub fn pipe() -> Result<(File, File)> {
+    let (read_fd, write_fd) = nix::unistd::pipe()?;
+    Ok((
+        unsafe { File::from_raw_fd(read_fd) },
+        unsafe { File::from_raw_fd(write_fd) }
+    ))
 }
 
 /// Provide a `read_token` method on `Read` taits where tokens are separated by blank characters.
@@ -135,13 +75,6 @@ impl<R: Read> TokenizedReader<R> {
         let byte = self.buffer[self.ptr];
         self.ptr += 1;
         Ok(Some(byte))
-    }
-
-    /// Consume the current `TokenizedReader` instance and returns the underlying reader.
-    ///
-    /// Note that any unread data in the internal buffer of `TokenizedReader` is lost.
-    fn into_inner(self) -> R {
-        self.inner
     }
 }
 
@@ -204,6 +137,15 @@ impl<T: Read> ReadExt for T {
     }
 }
 
+/// Read a data view of the specified file with a maximal length.
+pub fn read_file_view<P>(path: &P, max_len: usize) -> std::io::Result<String>
+    where P: ?Sized + AsRef<Path> {
+    let mut f = File::open(path)?;
+    let view = f.read_to_string_lossy(max_len)?.unwrap_or_default();
+
+    Ok(view)
+}
+
 /// Provide extension functions to `File`.
 pub trait FileExt {
     /// Duplicate a `File` instance by duplicating its underlying file descriptor using the `dup`
@@ -219,47 +161,5 @@ impl FileExt for File {
             ?;
 
         Ok(unsafe { File::from_raw_fd(dup_fd) })
-    }
-}
-
-/// Represent a temporary file.
-pub struct TempFile {
-    /// Path to the temporary file.
-    pub path: PathBuf,
-
-    /// The file object representing an opened handle to the temporary file.
-    pub file: File
-}
-
-impl TempFile {
-    /// Create a path template for creating temporary files. The returned path template can be
-    /// passed to `mkstemp` native function to create temporary files.
-    fn make_path_template() -> PathBuf {
-        let mut path = std::env::temp_dir();
-        path.push(PathBuf::from_str("judge_temp_XXXXXX").unwrap());
-
-        path
-    }
-
-    /// Create a new temporary file.
-    pub fn new() -> std::io::Result<TempFile> {
-        let path = TempFile::make_path_template();
-        TempFile::from_path_template(path)
-    }
-
-    /// Create a new temporary file with the given path template. The given path template should be
-    /// valid to be passed to the `mkstemp` native function to create temporary files; otherwise
-    /// this function panics.
-    pub fn from_path_template<T>(template: T) -> std::io::Result<TempFile>
-        where T: Into<PathBuf> {
-        let template = template.into();
-        let (fd, path) = nix::unistd::mkstemp(&template)
-            .map_err(|e| std::io::Error::from_raw_os_error(expect_nix_sys_err(e)))
-            ?;
-
-        Ok(TempFile {
-            path,
-            file: unsafe { File::from_raw_fd(fd) }
-        })
     }
 }

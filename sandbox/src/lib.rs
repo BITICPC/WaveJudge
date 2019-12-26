@@ -282,6 +282,14 @@ impl ProcessRedirection {
             stderr: None
         }
     }
+
+    /// Ignore the standard error stream contents. This function effectively redirects the stderr
+    /// stream to the special file `/dev/null`.
+    pub fn ignore_stderr(&mut self) -> Result<()> {
+        let f = File::open("/dev/null")?;
+        self.stderr = Some(f);
+        Ok(())
+    }
 }
 
 impl Default for ProcessRedirection {
@@ -570,7 +578,7 @@ impl ProcessBuilder {
     /// `ProcessBuilder` object. The redirection configuration will not be stored in the returned
     /// memento, which means you need to manually reset them to proper values after restoring from
     /// mementos.
-    pub fn create_memento(&self) -> ProcessBuilderMemento {
+    pub fn memento(&self) -> ProcessBuilderMemento {
         ProcessBuilderMemento {
             file: self.file.clone(),
             args: self.args.clone(),

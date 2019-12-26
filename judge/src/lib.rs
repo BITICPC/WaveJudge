@@ -5,6 +5,7 @@ extern crate error_chain;
 extern crate log;
 extern crate libc;
 extern crate nix;
+extern crate tempfile;
 extern crate sandbox;
 extern crate libloading;
 
@@ -272,8 +273,8 @@ pub struct TestCaseDescriptor {
     /// Path to the input file.
     pub input_file: PathBuf,
 
-    /// Path to the output file.
-    pub output_file: PathBuf
+    /// Path to the answer file.
+    pub answer_file: PathBuf
 }
 
 impl TestCaseDescriptor {
@@ -282,7 +283,7 @@ impl TestCaseDescriptor {
         where P1: Into<PathBuf>, P2: Into<PathBuf> {
         TestCaseDescriptor {
             input_file: input_file.into(),
-            output_file: answer_file.into(),
+            answer_file: answer_file.into(),
         }
     }
 }

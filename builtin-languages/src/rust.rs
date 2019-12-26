@@ -12,15 +12,13 @@ use judge::{
     Program,
     ProgramKind,
 };
-use judge::engine::{
-    CompilationInfo,
-    ExecutionInfo
-};
 use judge::languages::{
     LanguageBranch,
     LanguageProvider,
     LanguageProviderMetadata,
     LanguageManager,
+    CompilationInfo,
+    ExecutionInfo,
 };
 
 use crate::utils::Config;
