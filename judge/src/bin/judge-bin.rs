@@ -7,6 +7,21 @@ use std::str::FromStr;
 
 use error_chain::ChainedError;
 
+use judge::{
+    Program,
+    ProgramKind,
+    CompilationTaskDescriptor,
+    CompilationResult,
+};
+use judge::engine::{
+    JudgeEngine,
+    JudgeEngineConfig,
+};
+use judge::languages::{
+    LanguageIdentifier,
+    LanguageBranch,
+};
+
 error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
@@ -14,6 +29,12 @@ error_chain::error_chain! {
 
     links {
         Judge(::judge::Error, ::judge::ErrorKind);
+    }
+
+    errors {
+        InvalidLanguageIdentifier {
+            description("invalid language identifier")
+        }
     }
 }
 
@@ -42,14 +63,14 @@ fn get_arg_matches() -> clap::ArgMatches<'static> {
                 .takes_value(true)
                 .value_name("LANGUAGE")
                 .help("language of the source program to be compiled"))
-            .arg(clap::Arg::with_name("scheme")
-                .long("scheme")
+            .arg(clap::Arg::with_name("kind")
+                .long("kind")
                 .required(false)
                 .multiple(false)
                 .takes_value(true)
                 .value_name("SCHEME")
                 .possible_values(&["JUDGEE", "CHECKER", "INTERACTOR"])
-                .help("build scheme"))
+                .help("program kind"))
             .arg(clap::Arg::with_name("output")
                 .short("o")
                 .long("output")
@@ -189,8 +210,44 @@ fn get_arg_matches() -> clap::ArgMatches<'static> {
         .get_matches()
 }
 
+fn parse_lang(lang: &str) -> Result<LanguageIdentifier> {
+    let lang_parts = lang.split(':').collect::<Vec<&'_ str>>();
+    if lang_parts.len() != 3 {
+        return Err(Error::from(ErrorKind::InvalidLanguageIdentifier));
+    }
+
+    Ok(LanguageIdentifier::new(lang_parts[0], LanguageBranch::new(lang_parts[1], lang_parts[2])))
+}
+
 fn do_compile(matches: &clap::ArgMatches<'_>) -> Result<()> {
-    unimplemented!()
+    let file = matches.value_of("program").unwrap();
+    let lang = parse_lang(matches.value_of("lang").unwrap())?;
+    let prog = Program::new(file, lang);
+
+    let mut task = CompilationTaskDescriptor::new(prog);
+    task.kind = match matches.value_of("kind").unwrap() {
+        "JUDGEE" => ProgramKind::Judgee,
+        "CHECKER" => ProgramKind::Checker,
+        "INTERACTOR" => ProgramKind::Interactor,
+        _ => unreachable!()
+    };
+    task.output_dir = matches.value_of("output").map(PathBuf::from);
+
+    let engine = JudgeEngine::new();
+    let res = engine.compile(task).chain_err(|| Error::from("Compilation failed"))?;
+
+    println!("Compilation succeeded? {}", res.succeeded);
+    if res.succeeded {
+        let output_file = res.output_file
+            .expect("failed to get output file name of compilation task");
+        println!("Output file: {}", output_file.display())
+    } else {
+        println!("Compilation error.");
+        let message = res.compiler_out.expect("failed to get compiler output.");
+        println!("{}", message);
+    }
+
+    Ok(())
 }
 
 fn do_judge(matches: &clap::ArgMatches<'_>) -> Result<()> {
