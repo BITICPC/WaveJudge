@@ -46,10 +46,11 @@ fn get_arg_matches() -> clap::ArgMatches<'static> {
         .about("A wrapper program for executing wave judge crate in CLI environment.")
         .setting(clap::AppSettings::SubcommandRequiredElseHelp)
         .arg(clap::Arg::with_name("lang_so")
-            .long("lso")
+            .long("load")
             .multiple(true)
             .takes_value(true)
             .value_name("LANGUAGE_PROVIDER_SOs")
+            .global(true)
             .help("path to dynamic linking libraries containing language provider definitions"))
         .subcommand(clap::SubCommand::with_name("compile")
             .version("0.1.0")
@@ -70,6 +71,7 @@ fn get_arg_matches() -> clap::ArgMatches<'static> {
                 .takes_value(true)
                 .value_name("SCHEME")
                 .possible_values(&["JUDGEE", "CHECKER", "INTERACTOR"])
+                .default_value("JUDGEE")
                 .help("program kind"))
             .arg(clap::Arg::with_name("output")
                 .short("o")
@@ -263,8 +265,7 @@ fn do_main() -> Result<()> {
             for so in sos {
                 let so_path = PathBuf::from_str(so).unwrap();
                 judge::languages::loader::load_dylib(&so_path)
-                    .map_err(|e| Error::from(format!("failed to load dylib: \"{}\": {}",
-                        so, e.to_string())))
+                    .map_err(|e| Error::from(format!("failed to load dylib: \"{}\": {}", so, e)))
                     ?;
             }
         },
