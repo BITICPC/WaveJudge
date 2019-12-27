@@ -23,6 +23,8 @@ mod utils;
 
 use std::fmt::{Display, Formatter};
 
+use judge::languages::LanguageManager;
+
 
 /// Provide an error type that can be returned while initializing language providers.
 #[derive(Debug)]
@@ -55,12 +57,13 @@ impl Display for InitLanguageError {
 impl std::error::Error for InitLanguageError { }
 
 /// Provide a facade type for language provider initialization functions.
-type BuiltinLanguageProviderInitializer = fn() -> Result<(), InitLanguageError>;
+type BuiltinLanguageProviderInitializer = fn(&LanguageManager) -> Result<(), InitLanguageError>;
 
 /// This function is called by the judge loader to initialize and load available language providers
 /// in this library.
 #[no_mangle]
-pub extern "Rust" fn init_language_providers() -> Result<(), Box<dyn std::error::Error>> {
+pub extern "Rust" fn init_language_providers(lang: &LanguageManager)
+    -> Result<(), Box<dyn std::error::Error>> {
     let initializers: [(&'static str, BuiltinLanguageProviderInitializer); 4] = [
         ("cxx", cxx::init_cxx_providers),
         ("java", java::init_java_providers),
@@ -70,7 +73,7 @@ pub extern "Rust" fn init_language_providers() -> Result<(), Box<dyn std::error:
 
     for (name, init) in &initializers {
         log::info!("Initializing {} language providers...", name);
-        match init() {
+        match init(lang) {
             Ok(..) => (),
             Err(e) => {
                 return Err(e.into_boxed());

@@ -1,4 +1,5 @@
 extern crate error_chain;
+extern crate stderrlog;
 extern crate clap;
 extern crate judge;
 
@@ -11,7 +12,6 @@ use judge::{
     Program,
     ProgramKind,
     CompilationTaskDescriptor,
-    CompilationResult,
 };
 use judge::engine::{
     JudgeEngine,
@@ -223,7 +223,7 @@ fn parse_lang(lang: &str) -> Result<LanguageIdentifier> {
     Ok(LanguageIdentifier::new(lang_parts[0], LanguageBranch::new(lang_parts[1], lang_parts[2])))
 }
 
-fn do_compile(matches: &clap::ArgMatches<'_>) -> Result<()> {
+fn do_compile(matches: &clap::ArgMatches<'_>, engine: &mut JudgeEngine) -> Result<()> {
     let file = matches.value_of("program").unwrap();
     let lang = parse_lang(matches.value_of("lang").unwrap())?;
     let prog = Program::new(file, lang);
@@ -237,7 +237,6 @@ fn do_compile(matches: &clap::ArgMatches<'_>) -> Result<()> {
     };
     task.output_dir = matches.value_of("output").map(PathBuf::from);
 
-    let engine = JudgeEngine::new();
     let res = engine.compile(task).chain_err(|| Error::from("Compilation failed"))?;
 
     println!("Compilation succeeded? {}", res.succeeded);
@@ -254,44 +253,53 @@ fn do_compile(matches: &clap::ArgMatches<'_>) -> Result<()> {
     Ok(())
 }
 
-fn do_judge(matches: &clap::ArgMatches<'_>) -> Result<()> {
+fn do_judge(matches: &clap::ArgMatches<'_>, engine: &mut JudgeEngine) -> Result<()> {
     unimplemented!()
 }
 
 fn do_main() -> Result<()> {
+    stderrlog::new()
+        .quiet(false)
+        .verbosity(5)
+        .init()
+        .unwrap();
     let matches = get_arg_matches();
 
     // Load dynamic linking libraries that contains definitions for language proviers, if any.
     let mut dylib_loader = DylibLoader::new();
+    let mut engine = JudgeEngine::new();
     match matches.values_of("lang_so") {
         Some(sos) => {
             for so in sos {
                 let so_path = PathBuf::from_str(so).unwrap();
-                dylib_loader.load(&so_path)?;
+                dylib_loader.load(&so_path, engine.languages())?;
             }
         },
         None => ()
     };
 
+    let lang = engine.languages().languages();
+    log::debug!("All registered languages: {:?}", lang);
+
     match matches.subcommand() {
         ("compile", Some(compile_matches)) => {
-            do_compile(compile_matches)?;
+            do_compile(compile_matches, &mut engine)?;
         },
         ("judge", Some(judge_matches)) => {
-            do_judge(judge_matches)?;
+            do_judge(judge_matches, &mut engine)?;
         },
         _ => unreachable!()
     };
 
-    unimplemented!()
+    Ok(())
 }
 
-fn main() -> Result<()> {
+fn main() {
     match do_main() {
-        Ok(()) => Ok(()),
+        Ok(()) => (),
         Err(e) => {
             eprintln!("error: {}", e.display_chain().to_string());
-            Err(e)
+            std::process::exit(1);
         }
     }
 }

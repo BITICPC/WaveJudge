@@ -82,7 +82,7 @@ impl LanguageProvider for PythonLanguageProvider {
                 format!("{}", self.config.testlib_module_dir.display())));
         }
 
-        ei.args.push(format!("\"{}\"", program.file.display()));
+        ei.args.push(format!("{}", program.file.display()));
         Ok(ei)
     }
 }
@@ -91,12 +91,11 @@ impl LanguageProvider for PythonLanguageProvider {
 const PYTHON_LANG_CONFIG_FILE_NAME: &'static str = "py-config.yaml";
 
 /// Initialize python language provider and related facilities.
-pub fn init_py_providers() -> Result<(), InitLanguageError> {
+pub fn init_py_providers(lang: &LanguageManager) -> Result<(), InitLanguageError> {
     init_metadata();
 
-    let lang_mgr = LanguageManager::singleton();
     let config = PythonLanguageConfig::from_file(PYTHON_LANG_CONFIG_FILE_NAME)?;
-    lang_mgr.register(Box::new(PythonLanguageProvider::new(config)));
+    lang.register(Box::new(PythonLanguageProvider::new(config)));
 
     Ok(())
 }

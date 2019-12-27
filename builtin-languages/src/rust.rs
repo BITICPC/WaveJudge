@@ -76,11 +76,13 @@ impl LanguageProvider for RustLanguageProvider {
 
         if kind.is_jury() {
             ci.compiler.args.push(String::from("-L"));
-            ci.compiler.args.push(String::from(self.config.testlib_dir.to_str().unwrap()));
+            ci.compiler.args.push(format!("{}", self.config.testlib_dir.display()));
         }
 
         ci.compiler.args.push(String::from("-o"));
-        ci.compiler.args.push(format!("\"{}\"", program.file.display()));
+        ci.compiler.args.push(format!("{}", ci.output_file.display()));
+
+        ci.compiler.args.push(format!("{}", program.file.display()));
 
         Ok(ci)
     }
@@ -95,13 +97,12 @@ impl LanguageProvider for RustLanguageProvider {
 const RUST_CONFIG_FILE_NAME: &'static str = "rust-config.yaml";
 
 /// Initialize language providers for the Rust programming language.
-pub fn init_rust_providers() -> Result<(), InitLanguageError> {
+pub fn init_rust_providers(lang: &LanguageManager) -> Result<(), InitLanguageError> {
     init_metadata();
 
     let config = RustLanguageConfig::from_file(RUST_CONFIG_FILE_NAME)?;
 
-    let lang_mgr = LanguageManager::singleton();
-    lang_mgr.register(Box::new(RustLanguageProvider::new(config)));
+    lang.register(Box::new(RustLanguageProvider::new(config)));
 
     Ok(())
 }

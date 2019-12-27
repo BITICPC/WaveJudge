@@ -105,13 +105,13 @@ impl CXXLanguageProvider {
 
         if kind.is_jury() {
             ci.compiler.args.push(
-                format!("-I\"{}\"", self.config.testlib_include_dir.display()));
-            ci.compiler.args.push(format!("-L\"{}\"", self.config.testlib_lib_dir.display()));
+                format!("-I{}", self.config.testlib_include_dir.display()));
+            ci.compiler.args.push(format!("-L{}", self.config.testlib_lib_dir.display()));
         }
 
         ci.compiler.args.push(String::from("-o"));
-        ci.compiler.args.push(format!("\"{}\"", output_file.display()));
-        ci.compiler.args.push(format!("\"{}\"", program.file.display()));
+        ci.compiler.args.push(format!("{}", output_file.display()));
+        ci.compiler.args.push(format!("{}", program.file.display()));
 
         if kind.is_jury() {
             ci.compiler.args.push(format!("-l{}", WAVETESTLIB_LIB_NAME));
@@ -191,14 +191,13 @@ impl LanguageProvider for CPPLanguageProvider {
 /// Name of the file containing CXX language configurations.
 const CXX_LANG_CONFIG_FILE_NAME: &'static str = "cpp-config.yaml";
 
-pub fn init_cxx_providers() -> Result<(), InitLanguageError> {
+pub fn init_cxx_providers(lang: &LanguageManager) -> Result<(), InitLanguageError> {
     init_metadata();
 
     let config = CXXLanguageConfig::from_file(CXX_LANG_CONFIG_FILE_NAME)?;
 
-    let lang_mgr = LanguageManager::singleton();
-    lang_mgr.register(Box::new(CLanguageProvider::new(config.clone())));
-    lang_mgr.register(Box::new(CPPLanguageProvider::new(config.clone())));
+    lang.register(Box::new(CLanguageProvider::new(config.clone())));
+    lang.register(Box::new(CPPLanguageProvider::new(config.clone())));
 
     Ok(())
 }

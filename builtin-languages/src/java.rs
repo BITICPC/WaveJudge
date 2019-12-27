@@ -2,7 +2,9 @@
 
 use crate::InitLanguageError;
 
-pub fn init_java_providers() -> Result<(), InitLanguageError> {
+use judge::languages::LanguageManager;
+
+pub fn init_java_providers(lang: &LanguageManager) -> Result<(), InitLanguageError> {
     // TODO: Implement init_java_providers().
-    unimplemented!()
+    Ok(())
 }

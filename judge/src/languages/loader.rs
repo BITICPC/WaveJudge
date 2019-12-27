@@ -20,6 +20,8 @@ use std::path::Path;
 
 use libloading::{Library, Symbol};
 
+use super::LanguageManager;
+
 error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
@@ -56,7 +58,7 @@ impl DylibLoader {
     }
 
     /// Load the specified library.
-    pub fn load<P>(&mut self, file: &P) -> Result<()>
+    pub fn load<P>(&mut self, file: &P, lang_mgr: &LanguageManager) -> Result<()>
         where P: ?Sized + AsRef<Path> {
         let file = file.as_ref();
         log::info!("Loading language provider library: \"{}\"...", file.display());
@@ -70,7 +72,7 @@ impl DylibLoader {
             }
         };
 
-        match unsafe { func() } {
+        match unsafe { func(lang_mgr) } {
             Ok(..) => (),
             Err(e) => {
                 log::error!("dylib initialization failed: {}", e);
@@ -88,4 +90,5 @@ const DYLIB_INIT_SYMBOL: &'static [u8] = b"init_language_providers\x00";
 
 /// Type used to represent the primary load function inside a dynamic linking library containing
 /// language providers.
-type InitFunc = unsafe extern "Rust" fn() -> std::result::Result<(), Box<dyn std::error::Error>>;
+type InitFunc = unsafe extern "Rust" fn(&LanguageManager)
+    -> std::result::Result<(), Box<dyn std::error::Error>>;

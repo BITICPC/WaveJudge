@@ -6,7 +6,7 @@ pub mod loader;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
-use std::sync::{Arc, Once, RwLock};
+use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
@@ -167,34 +167,15 @@ pub trait LanguageProvider : Sync {
 /// Provide centralized language management services. This structure and its related facilities are
 /// thread safe.
 pub struct LanguageManager {
-    providers: RwLock<HashMap<String, Vec<Arc<Box<dyn LanguageProvider>>>>>
+    providers: RwLock<HashMap<String, Vec<Arc<Box<dyn LanguageProvider>>>>>,
 }
-
-/// This global static mutable variable stores an atomic reference to the singleton
-/// `LanguageManager` instance, and `LANG_MANAGER_ONCE` is the `Once` guard used to initialize it.
-static mut LANG_MANAGER: Option<Arc<LanguageManager>> = None;
-static LANG_MANAGER_ONCE: Once = Once::new();
 
 impl LanguageManager {
     /// Create a new `LanguageManager` instance.
-    fn new() -> LanguageManager {
+    pub fn new() -> LanguageManager {
         LanguageManager {
             providers: RwLock::new(HashMap::new())
         }
-    }
-
-    /// Get the singleton instance of `LanguageManager` in the application's global scope.
-    pub fn singleton() -> Arc<LanguageManager> {
-        LANG_MANAGER_ONCE.call_once(|| {
-            log::trace!("Initializing language manager");
-            unsafe {
-                LANG_MANAGER = Some(Arc::new(LanguageManager::new()));
-            }
-        });
-
-        unsafe {
-            LANG_MANAGER.as_ref().unwrap()
-        }.clone()
     }
 
     /// Register a language provider in the language manager.
@@ -227,6 +208,23 @@ impl LanguageManager {
         }
 
         None
+    }
+
+    /// Get all registered languages inside this language manager.
+    pub fn languages(&self) -> Vec<LanguageIdentifier> {
+        let lock = self.providers.read().unwrap();
+
+        let mut lang = Vec::new();
+        for (name, prov) in lock.iter() {
+            for provider in prov {
+                let metadata = provider.metadata();
+                for branch in &metadata.branches {
+                    lang.push(LanguageIdentifier::new(name.clone(), branch.clone()));
+                }
+            }
+        }
+
+        lang
     }
 }
 

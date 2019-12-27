@@ -1,0 +1,2 @@
+# Path to the directory containing the Rust port of WaveTestLib.
+testlib_dir: testlib/dir

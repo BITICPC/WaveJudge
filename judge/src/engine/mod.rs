@@ -139,20 +139,25 @@ pub struct JudgeEngine {
 
 // This implementation block implements creation logic of `JudgeEngine`.
 impl JudgeEngine {
-    /// Create a new judge engine that performs the given judge task.
+    /// Create a new `JudgeEngine` object.
     pub fn new() -> Self {
         JudgeEngine {
-            languages: super::languages::LanguageManager::singleton(),
-            config: JudgeEngineConfig::new()
+            languages: Arc::new(LanguageManager::new()),
+            config: JudgeEngineConfig::new(),
         }
     }
 
-    /// Create a new judge engine configured using the given judge engine configuration.
+    /// Create a new `JudgeEngine` object using the given configuration.
     pub fn with_config(config: JudgeEngineConfig) -> Self {
         JudgeEngine {
-            languages: super::languages::LanguageManager::singleton(),
-            config
+            languages: Arc::new(LanguageManager::new()),
+            config,
         }
+    }
+
+    /// Get the language manager contained in this judge engine.
+    pub fn languages(&self) -> &LanguageManager {
+        &self.languages
     }
 }
 
@@ -203,6 +208,7 @@ impl JudgeEngine {
     /// Execute the compiler configuration specified in the given `CompilationInfo` instance.
     fn execute_compiler(&self, compile_info: CompilationInfo) -> Result<CompilationResult> {
         let mut process_builder = compile_info.build()?;
+        process_builder.inherit_envs();
 
         // Redirect `stderr` of the compiler to a pipe.
         let (mut stderr_pipe_read, stderr_pipe_write) = io::pipe()?;

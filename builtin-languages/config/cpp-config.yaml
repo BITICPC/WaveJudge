@@ -1,0 +1,5 @@
+# Path to the directory containing header files of WaveTestLib.
+testlib_include_dir: testlib/include/dir
+
+# Path to the directory containing library files of WaveTestLib.
+testlib_lib_dir: testlib/lib/dir

@@ -1,0 +1,2 @@
+# Path to the directory containing module files of WaveTestLib.
+testlib_module_dir: testlib/module/dir

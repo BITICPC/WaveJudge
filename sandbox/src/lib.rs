@@ -414,13 +414,10 @@ impl ProcessBuilder {
             error_chain::bail!(ErrorKind::InvalidEnvironmentVariable);
         }
         if name.as_bytes().contains(&b'=') {
-            log::debug!("Invalid environment variable name: \"{}\": contains a equal sign.", name);
-            error_chain::bail!(ErrorKind::InvalidEnvironmentVariable);
+            log::warn!("Environment variable name contains a equal sign: \"{}\".",name);
         }
         if value.as_bytes().contains(&b'=') {
-            log::debug!(
-                "Invalid environment variable value: \"{}\": contains a equal sign.", value);
-            error_chain::bail!(ErrorKind::InvalidEnvironmentVariable);
+            log::warn!("Environment variable value contains a equal sign: \"{}\".", value);
         }
 
         self.envs.push((name, value));
@@ -429,7 +426,7 @@ impl ProcessBuilder {
 
     /// Add all environment variables in the calling process to the environment variables of the
     /// child process.
-    pub fn inherit_env(&mut self) {
+    pub fn inherit_envs(&mut self) {
         for (name, value) in std::env::vars() {
             self.add_env(name, value)
                 .expect("invalid environment variable in current process.");
