@@ -16,7 +16,7 @@ use judge::languages::{
     LanguageBranch,
     LanguageProvider,
     LanguageProviderMetadata,
-    LanguageManager,
+    LanguageProviderRegister,
     CompilationInfo,
     ExecutionInfo,
 };
@@ -97,7 +97,7 @@ impl LanguageProvider for RustLanguageProvider {
 const RUST_CONFIG_FILE_NAME: &'static str = "rust-config.yaml";
 
 /// Initialize language providers for the Rust programming language.
-pub fn init_rust_providers(lang: &LanguageManager) -> Result<(), InitLanguageError> {
+pub fn init_rust_providers(lang: &mut LanguageProviderRegister) -> Result<(), InitLanguageError> {
     init_metadata();
 
     let config = RustLanguageConfig::from_file(RUST_CONFIG_FILE_NAME)?;

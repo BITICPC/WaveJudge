@@ -17,7 +17,7 @@ use judge::languages::{
     LanguageBranch,
     LanguageProvider,
     LanguageProviderMetadata,
-    LanguageManager,
+    LanguageProviderRegister,
     CompilationInfo,
     ExecutionInfo,
 };
@@ -91,7 +91,7 @@ impl LanguageProvider for PythonLanguageProvider {
 const PYTHON_LANG_CONFIG_FILE_NAME: &'static str = "py-config.yaml";
 
 /// Initialize python language provider and related facilities.
-pub fn init_py_providers(lang: &LanguageManager) -> Result<(), InitLanguageError> {
+pub fn init_py_providers(lang: &mut LanguageProviderRegister) -> Result<(), InitLanguageError> {
     init_metadata();
 
     let config = PythonLanguageConfig::from_file(PYTHON_LANG_CONFIG_FILE_NAME)?;

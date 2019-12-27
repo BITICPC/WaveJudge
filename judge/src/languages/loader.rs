@@ -20,7 +20,7 @@ use std::path::Path;
 
 use libloading::{Library, Symbol};
 
-use super::LanguageManager;
+use super::LanguageProviderRegister;
 
 error_chain::error_chain! {
     types {
@@ -39,56 +39,37 @@ error_chain::error_chain! {
     }
 }
 
-
-/// Provide implementation of a dylib loader for loading dynamic linkling libraries containing
-/// language providers.
-pub struct DylibLoader {
-    /// Loaded dynamic libraries. Note that we must maintain loaded libraries inside this vector to
-    /// prevent them from being dropped since `Library` objects automatically unload the
-    /// corresponding dynamic library when they are dropped.
-    loaded: Vec<Library>,
-}
-
-impl DylibLoader {
-    /// Create a new `DylibLoader` object.
-    pub fn new() -> Self {
-        DylibLoader {
-            loaded: Vec::new(),
-        }
-    }
-
-    /// Load the specified library.
-    pub fn load<P>(&mut self, file: &P, lang_mgr: &LanguageManager) -> Result<()>
-        where P: ?Sized + AsRef<Path> {
-        let file = file.as_ref();
-        log::info!("Loading language provider library: \"{}\"...", file.display());
-
-        let lib = Library::new(file)?;
-        let func: Symbol<InitFunc> = match unsafe { lib.get(DYLIB_INIT_SYMBOL) } {
-            Ok(s) => s,
-            Err(e) => {
-                log::error!("Failed to load dylib: \"{}\": {}", file.display(), e);
-                return Err(Error::from(ErrorKind::IoError(e)));
-            }
-        };
-
-        match unsafe { func(lang_mgr) } {
-            Ok(..) => (),
-            Err(e) => {
-                log::error!("dylib initialization failed: {}", e);
-                return Err(Error::from(ErrorKind::DylibError(format!("{}", e))));
-            }
-        };
-
-        self.loaded.push(lib);
-        Ok(())
-    }
-}
-
 /// Symbol name for the init function in the dynamic linking library.
 const DYLIB_INIT_SYMBOL: &'static [u8] = b"init_language_providers\x00";
 
 /// Type used to represent the primary load function inside a dynamic linking library containing
 /// language providers.
-type InitFunc = unsafe extern "Rust" fn(&LanguageManager)
+type InitFunc = unsafe extern "Rust" fn(&mut LanguageProviderRegister)
     -> std::result::Result<(), Box<dyn std::error::Error>>;
+
+/// Load the specified library.
+pub fn load<P>(file: &P, lang_reg: &mut LanguageProviderRegister) -> Result<Library>
+    where P: ?Sized + AsRef<Path> {
+    let file = file.as_ref();
+    log::info!("Loading language provider library: \"{}\"...", file.display());
+
+    let lib = Library::new(file)?;
+    let func: Symbol<InitFunc> = match unsafe { lib.get(DYLIB_INIT_SYMBOL) } {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("Failed to load dylib: \"{}\": {}", file.display(), e);
+            return Err(Error::from(ErrorKind::IoError(e)));
+        }
+    };
+
+    match unsafe { func(lang_reg) } {
+        Ok(..) => (),
+        Err(e) => {
+            log::error!("dylib initialization failed: {}", e);
+            return Err(Error::from(ErrorKind::DylibError(
+                format!("dylib initialization failed: {}", e))));
+        }
+    };
+
+    Ok(lib)
+}

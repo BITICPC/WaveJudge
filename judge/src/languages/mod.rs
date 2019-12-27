@@ -1,12 +1,14 @@
 //! This module implements language related facilities used in the judge.
 //!
 
-pub mod loader;
+mod loader;
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
+
+use libloading::Library;
 
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
@@ -14,6 +16,11 @@ use serde::{Serialize, Deserialize};
 use sandbox::SystemCall;
 
 use super::{Program, ProgramKind};
+
+pub use loader::{
+    Error as LoadDylibError,
+    ErrorKind as LoadDylibErrorKind,
+};
 
 /// Identifier of a programming language and its runtime environment.
 ///
@@ -164,28 +171,31 @@ pub trait LanguageProvider : Sync {
         -> std::result::Result<ExecutionInfo, Box<dyn std::error::Error>>;
 }
 
-/// Provide centralized language management services. This structure and its related facilities are
-/// thread safe.
-pub struct LanguageManager {
-    providers: RwLock<HashMap<String, Vec<Arc<Box<dyn LanguageProvider>>>>>,
+/// Provide thread-unsafe implementation for `LanguageManager`.
+struct LanguageManagerImpl {
+    /// All loaded libraries.
+    libs: Vec<Library>,
+
+    /// All registered providers.
+    providers: HashMap<String, Vec<Arc<Box<dyn LanguageProvider>>>>,
 }
 
-impl LanguageManager {
-    /// Create a new `LanguageManager` instance.
-    pub fn new() -> LanguageManager {
-        LanguageManager {
-            providers: RwLock::new(HashMap::new())
+impl LanguageManagerImpl {
+    /// Create a new `LanguageManagerImpl` object.
+    fn new() -> Self {
+        LanguageManagerImpl {
+            libs: Vec::new(),
+            providers: HashMap::new(),
         }
     }
 
     /// Register a language provider in the language manager.
-    pub fn register(&self, lang_prov: Box<dyn LanguageProvider>) {
+    fn register(&mut self, lang_prov: Box<dyn LanguageProvider>) {
         let metadata = lang_prov.metadata();
-        let mut lock = self.providers.write().unwrap();
-        if let Some(ref mut prov) = lock.get_mut(&metadata.name) {
+        if let Some(ref mut prov) = self.providers.get_mut(&metadata.name) {
             prov.push(Arc::new(lang_prov));
         } else {
-            lock.insert(metadata.name.clone(), vec![Arc::new(lang_prov)]);
+            self.providers.insert(metadata.name.clone(), vec![Arc::new(lang_prov)]);
         }
 
         log::info!("Language provider for language \"{}\" registered.", metadata.name);
@@ -196,9 +206,8 @@ impl LanguageManager {
     ///
     /// If none of the `LanguageProviders` registered in this instance is suitable, then returns
     /// `None`.
-    pub fn find(&self, lang: &LanguageIdentifier) -> Option<Arc<Box<dyn LanguageProvider>>> {
-        let lock = self.providers.read().unwrap();
-        if let Some(prov) = lock.get(lang.language()) {
+    fn find(&self, lang: &LanguageIdentifier) -> Option<Arc<Box<dyn LanguageProvider>>> {
+        if let Some(prov) = self.providers.get(lang.language()) {
             for provider in prov {
                 let metadata = provider.metadata();
                 if metadata.branches.contains(lang.branch()) {
@@ -211,11 +220,9 @@ impl LanguageManager {
     }
 
     /// Get all registered languages inside this language manager.
-    pub fn languages(&self) -> Vec<LanguageIdentifier> {
-        let lock = self.providers.read().unwrap();
-
+    fn languages(&self) -> Vec<LanguageIdentifier> {
         let mut lang = Vec::new();
-        for (name, prov) in lock.iter() {
+        for (name, prov) in &self.providers {
             for provider in prov {
                 let metadata = provider.metadata();
                 for branch in &metadata.branches {
@@ -225,6 +232,85 @@ impl LanguageManager {
         }
 
         lang
+    }
+}
+
+impl Drop for LanguageManagerImpl {
+    fn drop(&mut self) {
+        // The order of dropping is critical since the libraries must strictly outlive the language
+        // providers and Rust cannot guarantee this.
+
+        // Drop all language providers first.
+        self.providers.clear();
+
+        // Then drop all the loaded libraries.
+        self.libs.clear();
+    }
+}
+
+/// Provide centralized language management services. This structure and its related facilities are
+/// thread safe.
+pub struct LanguageManager {
+    imp: RwLock<LanguageManagerImpl>,
+}
+
+impl LanguageManager {
+    /// Create a new `LanguageManager` instance.
+    pub fn new() -> Self {
+        LanguageManager {
+            imp: RwLock::new(LanguageManagerImpl::new()),
+        }
+    }
+
+    /// Load the specifid dynamic library that contains language providers.
+    pub fn load_dylib<P>(&self, file: &P) -> Result<(), LoadDylibError>
+        where P: ?Sized + AsRef<Path> {
+        let mut lock = self.imp.write().unwrap();
+        let mut register = LanguageProviderRegister::new(&mut *lock);
+        let lib = loader::load(file, &mut register)?;
+        lock.libs.push(lib);
+
+        Ok(())
+    }
+
+    /// Register a language provider in the language manager.
+    pub fn register(&self, lang_prov: Box<dyn LanguageProvider>) {
+        let mut lock = self.imp.write().unwrap();
+        lock.register(lang_prov);
+    }
+
+    /// Find a `LanguageProvider` instance registered in this `LanguageManager` that is capable of
+    /// handling the given language environment.
+    ///
+    /// If none of the `LanguageProviders` registered in this instance is suitable, then returns
+    /// `None`.
+    pub fn find(&self, lang: &LanguageIdentifier) -> Option<Arc<Box<dyn LanguageProvider>>> {
+        let lock = self.imp.read().unwrap();
+        lock.find(lang)
+    }
+
+    /// Get all registered languages inside this language manager.
+    pub fn languages(&self) -> Vec<LanguageIdentifier> {
+        let lock = self.imp.read().unwrap();
+        lock.languages()
+    }
+}
+
+/// Provide a register for language providers to register themselves into the language manager.
+pub struct LanguageProviderRegister<'a> {
+    /// The underlying thread unsafe implementation of a language manager.
+    lang: &'a mut LanguageManagerImpl,
+}
+
+impl<'a> LanguageProviderRegister<'a> {
+    /// Create a new `LanguageProviderRegister` object.
+    fn new(lang: &'a mut LanguageManagerImpl) -> Self {
+        LanguageProviderRegister { lang }
+    }
+
+    /// Register the given language provider in the language manager.
+    pub fn register(&mut self, lang_prov: Box<dyn LanguageProvider>) {
+        self.lang.register(lang_prov);
     }
 }
 

@@ -156,7 +156,7 @@ impl JudgeEngine {
     }
 
     /// Get the language manager contained in this judge engine.
-    pub fn languages(&self) -> &LanguageManager {
+    pub fn languages<'s>(&'s self) -> &'s LanguageManager {
         &self.languages
     }
 }

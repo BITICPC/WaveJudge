@@ -21,7 +21,6 @@ use judge::languages::{
     LanguageIdentifier,
     LanguageBranch,
 };
-use judge::languages::loader::DylibLoader;
 
 error_chain::error_chain! {
     types {
@@ -30,7 +29,8 @@ error_chain::error_chain! {
 
     links {
         JudgeError(::judge::Error, ::judge::ErrorKind);
-        DylibLoaderError(::judge::languages::loader::Error, ::judge::languages::loader::ErrorKind);
+        DylibLoaderError(
+            ::judge::languages::LoadDylibError, ::judge::languages::LoadDylibErrorKind);
     }
 
     errors {
@@ -39,7 +39,6 @@ error_chain::error_chain! {
         }
     }
 }
-
 
 fn get_arg_matches() -> clap::ArgMatches<'static> {
     clap::App::new("judge-bin")
@@ -266,13 +265,12 @@ fn do_main() -> Result<()> {
     let matches = get_arg_matches();
 
     // Load dynamic linking libraries that contains definitions for language proviers, if any.
-    let mut dylib_loader = DylibLoader::new();
     let mut engine = JudgeEngine::new();
     match matches.values_of("lang_so") {
         Some(sos) => {
             for so in sos {
                 let so_path = PathBuf::from_str(so).unwrap();
-                dylib_loader.load(&so_path, engine.languages())?;
+                engine.languages().load_dylib(&so_path)?;
             }
         },
         None => ()
