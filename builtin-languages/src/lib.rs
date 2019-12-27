@@ -59,6 +59,7 @@ type BuiltinLanguageProviderInitializer = fn() -> Result<(), InitLanguageError>;
 
 /// This function is called by the judge loader to initialize and load available language providers
 /// in this library.
+#[no_mangle]
 pub extern "Rust" fn init_language_providers() -> Result<(), Box<dyn std::error::Error>> {
     let initializers: [(&'static str, BuiltinLanguageProviderInitializer); 4] = [
         ("cxx", cxx::init_cxx_providers),
@@ -72,7 +73,6 @@ pub extern "Rust" fn init_language_providers() -> Result<(), Box<dyn std::error:
         match init() {
             Ok(..) => (),
             Err(e) => {
-                log::error!("Failed to initialize {} language providers: {}", name, e);
                 return Err(e.into_boxed());
             }
         }

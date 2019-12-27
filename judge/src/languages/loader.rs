@@ -16,78 +16,76 @@
 //! Otherwise the behavior is undefined.
 //!
 
-use std::fmt::{Display, Formatter};
 use std::path::Path;
 
 use libloading::{Library, Symbol};
 
-
-/// Provide an error type used when loading external dynamic linking libraries.
-#[derive(Debug)]
-pub enum LoadDylibError {
-    /// IO error.
-    IoError(std::io::Error),
-
-    /// Error raised by the external code inside the dynamic linking library.
-    DylibError(Box<dyn std::error::Error>)
-}
-
-impl From<std::io::Error> for LoadDylibError {
-    fn from(err: std::io::Error) -> Self {
-        LoadDylibError::IoError(err)
+error_chain::error_chain! {
+    types {
+        Error, ErrorKind, ResultExt, Result;
     }
-}
 
-impl From<Box<dyn std::error::Error>> for LoadDylibError {
-    fn from(err: Box<dyn std::error::Error>) -> Self {
-        LoadDylibError::DylibError(err)
+    foreign_links {
+        IoError(::std::io::Error);
     }
-}
 
-impl Display for LoadDylibError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use LoadDylibError::*;
-        match self {
-            IoError(ref err) => f.write_fmt(format_args!("IO error: {}", err)),
-            DylibError(ref err) => f.write_fmt(format_args!("dylib error: {}", err))
+    errors {
+        DylibError(message: String) {
+            description("dylib error")
+            display("dylib error: {}", message)
         }
     }
 }
 
-impl std::error::Error for LoadDylibError { }
 
+/// Provide implementation of a dylib loader for loading dynamic linkling libraries containing
+/// language providers.
+pub struct DylibLoader {
+    /// Loaded dynamic libraries. Note that we must maintain loaded libraries inside this vector to
+    /// prevent them from being dropped since `Library` objects automatically unload the
+    /// corresponding dynamic library when they are dropped.
+    loaded: Vec<Library>,
+}
+
+impl DylibLoader {
+    /// Create a new `DylibLoader` object.
+    pub fn new() -> Self {
+        DylibLoader {
+            loaded: Vec::new(),
+        }
+    }
+
+    /// Load the specified library.
+    pub fn load<P>(&mut self, file: &P) -> Result<()>
+        where P: ?Sized + AsRef<Path> {
+        let file = file.as_ref();
+        log::info!("Loading language provider library: \"{}\"...", file.display());
+
+        let lib = Library::new(file)?;
+        let func: Symbol<InitFunc> = match unsafe { lib.get(DYLIB_INIT_SYMBOL) } {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("Failed to load dylib: \"{}\": {}", file.display(), e);
+                return Err(Error::from(ErrorKind::IoError(e)));
+            }
+        };
+
+        match unsafe { func() } {
+            Ok(..) => (),
+            Err(e) => {
+                log::error!("dylib initialization failed: {}", e);
+                return Err(Error::from(ErrorKind::DylibError(format!("{}", e))));
+            }
+        };
+
+        self.loaded.push(lib);
+        Ok(())
+    }
+}
 
 /// Symbol name for the init function in the dynamic linking library.
 const DYLIB_INIT_SYMBOL: &'static [u8] = b"init_language_providers\x00";
 
 /// Type used to represent the primary load function inside a dynamic linking library containing
 /// language providers.
-type LoadFunction = unsafe extern fn() -> Result<(), Box<dyn std::error::Error>>;
-
-/// Load the given dynamic linking library containing custom language providers into the
-/// application.
-pub fn load_dylib<T>(file: T) -> Result<(), LoadDylibError>
-    where T: AsRef<Path> {
-    let file = file.as_ref();
-    log::info!("Loading language provider library: \"{}\"...", file.display());
-
-    match load_dylib_impl(file) {
-        Ok(..) => Ok(()),
-        Err(e) => {
-            log::error!("Failed to load language provider library \"{}\": {}", file.display(), e);
-            Err(e)
-        }
-    }
-}
-
-/// Do the real work of loading dynamic linking library containing custom language providers.
-fn load_dylib_impl<T>(file: T) -> Result<(), LoadDylibError>
-    where T: AsRef<Path> {
-    let lib = Library::new(file.as_ref())?;
-    unsafe {
-        let func: Symbol<LoadFunction> = lib.get(DYLIB_INIT_SYMBOL)?;
-        func()?;
-    }
-
-    Ok(())
-}
+type InitFunc = unsafe extern "Rust" fn() -> std::result::Result<(), Box<dyn std::error::Error>>;
