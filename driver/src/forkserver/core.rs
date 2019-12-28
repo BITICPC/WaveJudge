@@ -29,7 +29,7 @@ pub(super) fn fork_server_main(config: &AppJudgeEngineConfig, mut socket: ForkSe
     // TODO: Change the return type of this function from `Result<()>` to `Result<!>` after the
     // TODO: never type `!` stablize.
 
-    log::info!("Initializing fork server");
+    log::info!("Starting fork server");
     let handler = CommandHandler::new(config);
     log::info!("Fork server started");
 
@@ -102,8 +102,20 @@ impl CommandHandler {
     /// Create and initializes a new `CommandHandler`.
     fn new(app_config: &AppJudgeEngineConfig) -> Self {
         let engine_config = get_judge_engine_config(app_config);
+        let engine = JudgeEngine::with_config(engine_config);
+
+        log::info!("Loading language provider dynamic libraries");
+        for lang_so in &app_config.language_dylibs {
+            match engine.languages().load_dylib(lang_so) {
+                Ok(..) => (),
+                Err(e) => {
+                    log::error!("Failed to load langauge dylib: \"{}\": {}", lang_so.display(), e);
+                }
+            };
+        }
+
         CommandHandler {
-            judge_engine: JudgeEngine::with_config(engine_config)
+            judge_engine: engine
         }
     }
 

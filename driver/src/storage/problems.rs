@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::forkserver::{ForkServerClient, ForkServerClientExt};
 use crate::restful::RestfulClient;
 use crate::restful::entities::{ObjectId, LanguageTriple, ProblemInfo, JudgeMode};
+use crate::sync::KeyLock;
 
 use super::db::SqliteConnection;
 
@@ -237,6 +238,9 @@ impl From<ProblemInfo> for ProblemMetadata {
 
 /// Provide access to the problem metadata store.
 pub struct ProblemStore {
+    /// Lock for accessing specific problem.
+    lock: KeyLock<ObjectId>,
+
     /// Connection to the sqlite database containing problem metadata.
     db: Arc<SqliteConnection>,
 
@@ -259,6 +263,7 @@ impl ProblemStore {
         jury_dir: P) -> Result<Self>
         where P: Into<PathBuf> {
         let store = ProblemStore {
+            lock: KeyLock::new(),
             db,
             rest,
             fork_server,
@@ -348,7 +353,7 @@ impl ProblemStore {
 
     /// Get the cached version of the metadata of the specified problem. The returned metadata
     /// might be out of date.
-    pub fn get_cached(&self, id: ObjectId) -> Result<Option<ProblemMetadata>> {
+    fn get_cached(&self, id: ObjectId) -> Result<Option<ProblemMetadata>> {
         self.db.execute(|conn| -> Result<Option<ProblemMetadata>> {
             let mut cursor = conn
                 .prepare("SELECT * FROM problems WHERE id = ?")?
@@ -367,50 +372,52 @@ impl ProblemStore {
     /// the latest version. This function will send a request to the judge board server if the
     /// cached metadata is out of date.
     pub fn get(&self, id: ObjectId) -> Result<ProblemMetadata> {
-        if let Some(timestamp) = self.get_timestamp(id)? {
-            let remote_ts = self.get_remote_timestamp(id)?;
-            if timestamp >= remote_ts {
-                if let Some(metadata) = self.get_cached(id)? {
-                    return Ok(metadata);
+        self.lock.lock_and_execute(id, |_| {
+            if let Some(timestamp) = self.get_timestamp(id)? {
+                let remote_ts = self.get_remote_timestamp(id)?;
+                if timestamp >= remote_ts {
+                    if let Some(metadata) = self.get_cached(id)? {
+                        return Ok(metadata);
+                    }
                 }
             }
-        }
 
-        let mut metadata: ProblemMetadata = self.rest.get_problem_info(id)?.into();
-        if metadata.has_jury() {
-            // Compile jury program.
-            log::info!("Compiling jury program for problem \"{}\"", metadata.id);
+            let mut metadata: ProblemMetadata = self.rest.get_problem_info(id)?.into();
+            if metadata.has_jury() {
+                // Compile jury program.
+                log::info!("Compiling jury program for problem \"{}\"", metadata.id);
 
-            // Note that if has_jury function returns true then jury_src and jury_lang used below
-            // must be `Some`.
-            let jury_exec_temp_path = self.compile_jury(
-                metadata.jury_src.as_ref().expect("failed to get source code of jury"),
-                metadata.jury_lang.as_ref().expect("failed to get language of jury"),
-                metadata.judge_mode)?;
+                // Note that if has_jury function returns true then jury_src and jury_lang used below
+                // must be `Some`.
+                let jury_exec_temp_path = self.compile_jury(
+                    metadata.jury_src.as_ref().expect("failed to get source code of jury"),
+                    metadata.jury_lang.as_ref().expect("failed to get language of jury"),
+                    metadata.judge_mode)?;
 
-            if jury_exec_temp_path.is_some() {
-                // Copy the jury executable to the jury directory.
-                let jury_exec_temp_path = jury_exec_temp_path.unwrap();
-                let jury_exec_ext = jury_exec_temp_path.extension();
+                if jury_exec_temp_path.is_some() {
+                    // Copy the jury executable to the jury directory.
+                    let jury_exec_temp_path = jury_exec_temp_path.unwrap();
+                    let jury_exec_ext = jury_exec_temp_path.extension();
 
-                // The file name of the jury executable should be {problemId}.{extension} under the
-                // jury exectable directory. Build the jury executable's file name now.
-                let mut jury_exec_path = self.jury_dir.clone();
-                jury_exec_path.push(id.to_string());
-                if jury_exec_ext.is_some() {
-                    jury_exec_path.set_extension(jury_exec_ext.unwrap());
+                    // The file name of the jury executable should be {problemId}.{extension} under the
+                    // jury exectable directory. Build the jury executable's file name now.
+                    let mut jury_exec_path = self.jury_dir.clone();
+                    jury_exec_path.push(id.to_string());
+                    if jury_exec_ext.is_some() {
+                        jury_exec_path.set_extension(jury_exec_ext.unwrap());
+                    }
+
+                    // And do the copy.
+                    std::fs::copy(&jury_exec_temp_path, &jury_exec_path)?;
+
+                    metadata.jury_exec_path = Some(jury_exec_path);
                 }
-
-                // And do the copy.
-                std::fs::copy(&jury_exec_temp_path, &jury_exec_path)?;
-
-                metadata.jury_exec_path = Some(jury_exec_path);
             }
-        }
 
-        metadata.save(self.db.as_ref())?;
+            metadata.save(self.db.as_ref())?;
 
-        Ok(metadata)
+            Ok(metadata)
+        })
     }
 }
 

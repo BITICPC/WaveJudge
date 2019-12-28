@@ -17,6 +17,7 @@ use zip::read::ZipFile;
 
 use crate::restful::RestfulClient;
 use crate::restful::entities::ObjectId;
+use crate::sync::KeyLock;
 
 error_chain::error_chain! {
     types {
@@ -313,16 +314,16 @@ trait Extractable {
     type Error;
 
     /// Extract the contents of the `ZipArchive` into the specified directory.
-    fn extract_into<P>(&mut self, dir: P) -> std::result::Result<(), Self::Error>
-        where P: AsRef<Path>;
+    fn extract_into<P>(&mut self, dir: &P) -> std::result::Result<(), Self::Error>
+        where P: ?Sized + AsRef<Path>;
 }
 
 impl<R> Extractable for ZipArchive<R>
     where R: Seek + Read {
     type Error = Error;
 
-    fn extract_into<P>(&mut self, dir: P) -> std::result::Result<(), Self::Error>
-        where P: AsRef<Path> {
+    fn extract_into<P>(&mut self, dir: &P) -> std::result::Result<(), Self::Error>
+        where P: ?Sized + AsRef<Path> {
         let num_files = self.len();
         for i in 0..num_files {
             let mut archive_file = self.by_index(i)?;
@@ -342,8 +343,8 @@ impl<R> Extractable for TestArchive<R>
     where R: Seek + Read {
     type Error = Error;
 
-    fn extract_into<P>(&mut self, dir: P) -> std::result::Result<(), Self::Error>
-        where P: AsRef<Path> {
+    fn extract_into<P>(&mut self, dir: &P) -> std::result::Result<(), Self::Error>
+        where P: ?Sized + AsRef<Path> {
         self.archive.extract_into(dir)
     }
 }
@@ -385,9 +386,10 @@ pub struct TestArchiveHandle {
 impl TestArchiveHandle {
     /// Create a new `TestArchiveHandle` value representing the test archive residing in the
     /// specific directory.
-    fn new<P1, P2>(dir: P1, metadata_file_path: P2) -> Result<Self>
-        where P1: AsRef<Path>, P2: AsRef<Path> {
-        let mut metadata_file = File::open(&metadata_file_path)?;
+    fn new<P1, P2>(dir: &P1, metadata_file_path: &P2) -> Result<Self>
+        where P1: ?Sized + AsRef<Path>,
+              P2: ?Sized + AsRef<Path> {
+        let mut metadata_file = File::open(metadata_file_path)?;
         let metadata: TestArchiveMetadata = serde_json::from_reader(&mut metadata_file)?;
 
         Ok(TestArchiveHandle {
@@ -434,6 +436,9 @@ impl<'a> TestCaseInfo<'a> {
 
 /// Provide access to local archive store.
 pub struct ArchiveStore {
+    /// Lock for downloading the archive store by test archive key.
+    lock: KeyLock<ObjectId>,
+
     /// The root directory of the archive store on the local disk.
     root_dir: PathBuf,
 
@@ -447,6 +452,7 @@ impl ArchiveStore {
         where P: ?Sized + AsRef<Path> {
         let dir = dir.as_ref();
         ArchiveStore {
+            lock: KeyLock::new(),
             root_dir: dir.to_owned(),
             rest
         }
@@ -460,16 +466,17 @@ impl ArchiveStore {
     }
 
     /// Get the path of the metadata file inside the speicified archive directory.
-    fn get_metadata_file_path<P>(&self, archive_dir: P) -> PathBuf
-        where P: AsRef<Path> {
+    fn get_metadata_file_path<P>(&self, archive_dir: &P) -> PathBuf
+        where P: ?Sized + AsRef<Path> {
         let mut path = archive_dir.as_ref().to_owned();
         path.push("metadata.json");
         path
     }
 
     /// Extract the content of the given test archive into the specified directory.
-    fn extract_archive<R, T>(&self, mut archive: TestArchive<R>, archive_dir: T) -> Result<()>
-        where R: Seek + Read, T: AsRef<Path> {
+    fn extract_archive<R, T>(&self, mut archive: TestArchive<R>, archive_dir: &T) -> Result<()>
+        where R: Seek + Read,
+              T: ?Sized + AsRef<Path> {
         let archive_metadata = &archive.metadata;
         log::debug!("Archive metadata extracted: {:?}", archive_metadata);
 
@@ -490,8 +497,8 @@ impl ArchiveStore {
     }
 
     /// Download the specified test archive, verify and extract to the specified archive directory.
-    fn download_archive<T>(&self, id: ObjectId, archive_dir: T) -> Result<()>
-        where T: AsRef<Path> {
+    fn download_archive<T>(&self, id: ObjectId, archive_dir: &T) -> Result<()>
+        where T: ?Sized + AsRef<Path> {
         // Create a temporary file and download the test archive from the judge board server.
         log::info!("Downloading archive {}", id);
         let mut archive_file = tempfile::tempfile()?;
@@ -514,9 +521,13 @@ impl ArchiveStore {
     /// missing archive will be downloaded.
     pub fn get(&self, id: ObjectId) -> Result<TestArchiveHandle> {
         let archive_dir = self.get_archive_dir(id);
-        if !archive_dir.exists() {
-            self.download_archive(id, &archive_dir)?;
-        }
+        self.lock.lock_and_execute(id, |_| {
+            if !archive_dir.exists() {
+                self.download_archive(id, &archive_dir)
+            } else {
+                Ok(())
+            }
+        })?;
 
         let metadata_file_path = self.get_metadata_file_path(&archive_dir);
         TestArchiveHandle::new(&archive_dir, &metadata_file_path)

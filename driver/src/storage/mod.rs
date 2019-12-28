@@ -5,7 +5,6 @@ pub mod problems;
 use std::sync::Arc;
 
 use archives::ArchiveStore;
-use db::SqliteConnection;
 use problems::ProblemStore;
 
 use crate::config::AppConfig;
@@ -26,16 +25,11 @@ error_chain::error_chain! {
 
 /// Provide a facade of the storage subsystem used in WaveJudge.
 pub struct AppStorageFacade {
-    db: Arc<SqliteConnection>,
-
-    /// The RESTful client.
-    rest: Arc<RestfulClient>,
-
     /// The archive store.
-    archive_store: ArchiveStore,
+    pub archives: ArchiveStore,
 
     /// The problem store.
-    problem_store: ProblemStore,
+    pub problems: ProblemStore,
 }
 
 impl AppStorageFacade {
@@ -53,21 +47,9 @@ impl AppStorageFacade {
         let problem_rest = rest.clone();
 
         Ok(AppStorageFacade {
-            db: arc_db,
-            rest,
-            archive_store: ArchiveStore::new(&config.storage.archive_dir, archive_rest),
-            problem_store: ProblemStore::new(
+            archives: ArchiveStore::new(&config.storage.archive_dir, archive_rest),
+            problems: ProblemStore::new(
                 problem_db, problem_rest, fork_server, &config.storage.jury_dir)?,
         })
-    }
-
-    /// Get the archive store.
-    pub fn archives(&self) -> &ArchiveStore {
-        &self.archive_store
-    }
-
-    /// Get the problem store.
-    pub fn problems(&self) -> &ProblemStore {
-        &self.problem_store
     }
 }

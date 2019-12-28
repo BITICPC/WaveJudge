@@ -93,8 +93,8 @@ impl SubmissionJudgeResultExt for SubmissionJudgeResult {
 /// Execute judge task on the given submission and returns the judge result.
 fn handle_submission(submission: &SubmissionInfo, context: &AppContext)
     -> Result<SubmissionJudgeResult> {
-    let problem = context.storage.problems().get(submission.problem_id)?;
-    let archive = context.storage.archives().get(problem.archive_id)?;
+    let problem = context.storage.problems.get(submission.problem_id)?;
+    let archive = context.storage.archives.get(problem.archive_id)?;
 
     if problem.has_jury() && !problem.jury_compile_succeeded() {
         log::error!("the checker of the problem \"{}\" did not compiled successfully.",

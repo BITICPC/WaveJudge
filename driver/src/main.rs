@@ -24,6 +24,7 @@ mod heartbeat;
 mod init;
 mod restful;
 mod storage;
+mod sync;
 mod utils;
 mod workers;
 
