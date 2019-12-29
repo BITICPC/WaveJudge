@@ -65,6 +65,9 @@ pub struct ClusterConfig {
 
     /// The time interval between two adjacent heartbeat packets.
     pub heartbeat_interval: u32,
+
+    /// Path to a PEM file containing the private key used for judge node authentication.
+    pub authenticate_key_file: PathBuf,
 }
 
 /// Provide storage related configurations.

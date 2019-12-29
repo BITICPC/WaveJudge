@@ -7,6 +7,8 @@ extern crate rand;
 extern crate sqlite;
 extern crate procfs;
 extern crate reqwest;
+extern crate openssl;
+extern crate base64;
 extern crate serde;
 extern crate serde_json;
 extern crate serde_yaml;

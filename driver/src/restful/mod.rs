@@ -2,19 +2,36 @@
 //! judge board server's REST APIs.
 //!
 
+mod auth;
 pub mod entities;
+mod pipeline;
 
 use std::io::Write;
-use std::sync::Mutex;
 
-use reqwest::{Client as HttpClient, Response, Url};
+use reqwest::{
+    Client as HttpClient,
+    RequestBuilder,
+    Method as HttpMethod,
+    Response,
+    Url
+};
+
 use serde::Serialize;
 
+use openssl::pkey::Private as PrivateKey;
+use openssl::rsa::Rsa;
+
 use entities::{ObjectId, Heartbeat, ProblemInfo, SubmissionInfo, SubmissionJudgeResult};
+use pipeline::Pipeline;
+use auth::Authenticator;
 
 error_chain::error_chain! {
     types {
         Error, ErrorKind, ResultExt, Result;
+    }
+
+    links {
+        PipelineError(pipeline::Error, pipeline::ErrorKind);
     }
 
     foreign_links {
@@ -25,7 +42,7 @@ error_chain::error_chain! {
     }
 
     errors {
-        NonSuccessfulStatusCode(status_code: u16) {
+        UnsuccessfulStatusCode(status_code: u16) {
             description("remote responses with unsuccessful status code")
             display("remote responses with unsuccessful status code: {}", status_code)
         }
@@ -34,50 +51,59 @@ error_chain::error_chain! {
 
 /// Provide a REST client to the judge board server.
 pub struct RestfulClient {
-    /// The underlying `HttpClient` object.
-    http: Mutex<HttpClient>,
-
     /// The URL to the judge board server.
-    judge_board_url: String,
+    judge_board_url: Url,
+
+    /// The request pipeline.
+    pipeline: Pipeline,
+
+    /// The http client.
+    http: HttpClient,
 }
 
 impl RestfulClient {
     /// Create a new `RestfulClient` instance.
-    pub fn new<U>(judge_board_url: U) -> Self
-        where U: Into<String> {
+    pub fn new<U>(judge_board_url: U, auth_key: Rsa<PrivateKey>) -> Self
+        where U: Into<Url> {
+        let judge_board_url = judge_board_url.into();
+        let authenticator = Authenticator::new(judge_board_url.clone(), auth_key);
+
+        let mut pipeline = Pipeline::new();
+        pipeline.add_middleware(Box::new(authenticator));
+
         RestfulClient {
-            http: Mutex::new(HttpClient::new()),
-            judge_board_url: judge_board_url.into()
+            judge_board_url,
+            pipeline,
+            http: HttpClient::new(),
         }
     }
 
-    /// Get full request URL to the judge board server. The given path should be an absolute path that
-    /// can be concatenated after the host part of the URL, e.g. `/judges`.
-    fn get_full_request_url<T>(&self, path: &T) -> Result<reqwest::Url>
+    /// Get full request URL to the judge board server. The given path should be an absolute path
+    /// that can be concatenated after the host part of the URL, e.g. `/judges`.
+    fn get_full_request_url<T>(&self, path: &T) -> Url
         where T: ?Sized + AsRef<str> {
-        let full_path_str = format!("{}{}", self.judge_board_url, path.as_ref());
-        Url::parse(&full_path_str)
-            .map_err(|e| Error::from(e))
+        let mut full_path = self.judge_board_url.clone();
+        full_path.set_path(path.as_ref());
+        full_path
     }
 
-    /// Invokes the given function on the statically allocated HTTP client object. This function returns
-    /// whatever the given function returns, if no errors occur.
-    fn with_http_client<F, R>(&self, func: F) -> R
-        where F: FnOnce(&HttpClient) -> R {
-        let lock = self.http.lock().expect("failed to lock mutex");
-        func(&*lock)
+    /// Execute the given request and get the response. This function will return error if the
+    /// status of the response is not 2XX.
+    fn request(&self, req: RequestBuilder) -> Result<Response> {
+        let response = self.pipeline.execute(req).map_err(Error::from)?;
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(Error::from(ErrorKind::UnsuccessfulStatusCode(response.status().as_u16())))
+        }
     }
 
     /// Send a GET request to the judge board server.
     fn get<T>(&self, path: &T) -> Result<Response>
         where T: ?Sized + AsRef<str> {
-        let request_url = self.get_full_request_url(path)?;
-
-        self.with_http_client(|http| {
-            http.get(request_url)
-                .send()
-                .map_err(|e| Error::from(e))
-        })
+        let request_url = self.get_full_request_url(path);
+        let request = self.http.request(HttpMethod::GET, request_url);
+        self.request(request)
     }
 
     /// Send a GET request to the judge board server, saving the content of the response to the given
@@ -94,20 +120,11 @@ impl RestfulClient {
     /// request will be populated by the payload in JSON format.
     fn patch<T, U>(&self, path: &T, payload: &U) -> Result<()>
         where T: ?Sized + AsRef<str>, U: ?Sized + Serialize {
-        let request_url = self.get_full_request_url(path)?;
+        let request_url = self.get_full_request_url(path);
+        let request = self.http.request(HttpMethod::PATCH, request_url);
+        self.request(request)?;
 
-        let response = self.with_http_client(|http| {
-            http.patch(request_url)
-                .json(payload)
-                .send()
-        })?;
-
-        let status = response.status();
-        if status.is_success() {
-            Ok(())
-        } else {
-            Err(Error::from(ErrorKind::NonSuccessfulStatusCode(status.as_u16())))
-        }
+        Ok(())
     }
 
     /// Send a heartbeat packet to the judge board.
@@ -140,15 +157,15 @@ impl RestfulClient {
         if response.status() == 200 {
             let submission: SubmissionInfo = response.json()?;
             Ok(Some(submission))
-        } else if response.status() == 204 {
-            Ok(None)
         } else {
-            Err(Error::from(ErrorKind::NonSuccessfulStatusCode(response.status().as_u16())))
+            // Note that the status code returned by `self.get` must be 2XX.
+            Ok(None)
         }
     }
 
     /// Patch the given submission judge result.
-    pub fn patch_judge_result(&self, submission_id: ObjectId,
+    pub fn patch_judge_result(&self,
+        submission_id: ObjectId,
         result: &SubmissionJudgeResult) -> Result<()> {
         let path = format!("/submissions/{}", submission_id);
         self.patch(&path, result)

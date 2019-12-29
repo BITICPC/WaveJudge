@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use openssl::rsa::Rsa;
+
 use clap::ArgMatches;
 
 use crate::AppContext;
@@ -20,6 +22,9 @@ error_chain::error_chain! {
 
     foreign_links {
         LogError(::log4rs::Error);
+        IoError(::std::io::Error);
+        OpenSslError(::openssl::error::ErrorStack);
+        UrlError(::reqwest::UrlError);
     }
 
     links {
@@ -89,12 +94,35 @@ impl AppContextBuilder {
     }
 
     /// Initialize RESTful client to the judge board server.
-    fn init_rest(&mut self) {
-        let judge_board_url = &self.get_app_config().cluster.judge_board_url;
+    fn init_rest(&mut self) -> Result<()> {
+        let config = &self.get_app_config().cluster;
+        let judge_board_url = config.judge_board_url.clone();
         log::info!("Initializing REST client with judge board at {}", judge_board_url);
 
-        let rest = RestfulClient::new(judge_board_url);
+        let judge_board_url = match reqwest::Url::parse(&judge_board_url) {
+            Ok(url) => url,
+            Err(e) => {
+                log::error!("Failed to parse judge board URL: {}", e);
+                return Err(Error::from(e));
+            }
+        };
+
+        log::debug!("Loading authenticate key from PEM file: \"{}\"",
+            config.authenticate_key_file.display());
+        let pem_data = match std::fs::read(&config.authenticate_key_file) {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("Failed to load authenticate key from file \"{}\": {}",
+                    config.authenticate_key_file.display(), e);
+                return Err(Error::from(e));
+            }
+        };
+        let auth_key = Rsa::private_key_from_pem(&pem_data)?;
+
+        let rest = RestfulClient::new(judge_board_url, auth_key);
         self.rest = Some(Arc::new(rest));
+
+        Ok(())
     }
 
     /// Get an Arc to the initialized RESTful client object. This function panics if the RESTful
@@ -126,7 +154,7 @@ impl AppContextBuilder {
         // The initialization of fork server should be as early as possible to avoid unnecessary
         // memory footprint in the fork server process.
         self.init_fork_server()?;
-        self.init_rest();
+        self.init_rest()?;
         self.init_storage_facade()?;
 
         Ok(())

@@ -7,6 +7,9 @@ cluster:
     # in seconds.
     heartbeat_interval: 5
 
+    # Path to a PEM file containing the private key used for judge node authentication.
+    authenticate_key_file: "path/to/authenticate/key/file"
+
 storage:
     # Path to the sqlite database file.
     db_file: "path/to/db/file"
