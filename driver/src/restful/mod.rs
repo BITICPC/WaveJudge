@@ -119,9 +119,11 @@ impl RestfulClient {
     /// Send a PATCH request to the judge board server, requesting the given path. The body of the
     /// request will be populated by the payload in JSON format.
     fn patch<T, U>(&self, path: &T, payload: &U) -> Result<()>
-        where T: ?Sized + AsRef<str>, U: ?Sized + Serialize {
+        where T: ?Sized + AsRef<str>,
+              U: ?Sized + Serialize {
         let request_url = self.get_full_request_url(path);
-        let request = self.http.request(HttpMethod::PATCH, request_url);
+        let request = self.http.request(HttpMethod::PATCH, request_url)
+            .json(payload);
         self.request(request)?;
 
         Ok(())

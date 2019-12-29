@@ -2,7 +2,6 @@
 //!
 
 use reqwest::{
-    Client as HttpClient,
     RequestBuilder,
     Response,
 };
@@ -76,11 +75,6 @@ impl<'a> PipelineContext<'a> {
             request: Some(request),
             next_index: 0,
         }
-    }
-
-    /// Determine whether this `PipelineContext` is executing request middlewares.
-    pub fn has_request(&self) -> bool {
-        self.request.is_some()
     }
 
     /// Transfer the ownership of the underlying request to the caller.
