@@ -1,10 +1,14 @@
 # Step 1: Build application
 FROM rust:1.40-stretch as build
 ARG profile=release
+ARG tuna=yes
 WORKDIR /app
 # Copy all application related files and directories into the image.
 COPY ./ ./
-# And then build.
+RUN ./docker/use-tuna.py --tuna $tuna && apt update
+# Install necessary dependencies to build WaveJudge from source.
+RUN apt install openssl libseccomp2-dev
+# And then build
 RUN ./build.py --profile $profile
 
 # Step 2: Build application runtime based on a fresh debian image
@@ -12,7 +16,6 @@ FROM debian:stretch-slim as runtime
 WORKDIR /deps
 
 # Use tuna source if necessary.
-ARG tuna=yes
 COPY docker/ ./scripts/
 RUN ./scripts/deps-install.py --use-tuna $tuna
 
