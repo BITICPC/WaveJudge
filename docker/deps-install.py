@@ -15,7 +15,7 @@ def run(*args):
     subprocess.run(args, check=True, shell=True)
 
 def apt_install(name):
-    run('apt install "{}"'.format(name))
+    run('apt-get --assume-yes install "{}"'.format(name))
 
 def wget(name):
     run('wget "{}"'.format(name))
