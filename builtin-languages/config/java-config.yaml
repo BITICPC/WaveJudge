@@ -2,4 +2,4 @@
 testlib_jar: path/to/testlib/jar.jar
 
 # Path to the compilation script.
-compile_script: ./java-compile.py
+compile_script: ./scripts/java-compile.py

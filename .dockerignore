@@ -1,0 +1,10 @@
+.devcontainer/
+.vscode/
+.idea/
+
+.git/
+.gitignore
+
+examples/
+
+target/

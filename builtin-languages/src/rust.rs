@@ -29,7 +29,9 @@ static METADATA_ONCE: Once = Once::new();
 fn init_metadata() {
     METADATA_ONCE.call_once(|| {
         let mut metadata = LanguageProviderMetadata::new("rust", false);
-        metadata.branches.push(LanguageBranch::new("rust", "39"));
+        metadata.branches.push(LanguageBranch::new("rust", "1.38"));
+        metadata.branches.push(LanguageBranch::new("rust", "1.39"));
+        metadata.branches.push(LanguageBranch::new("rust", "1.40"));
 
         unsafe {
             METADATA = Some(metadata);
@@ -68,7 +70,10 @@ impl LanguageProvider for RustLanguageProvider {
         -> Result<CompilationInfo, Box<dyn std::error::Error>> {
         let output_file = crate::utils::make_output_file_path(&program.file, output_dir);
 
-        let mut ci = CompilationInfo::new("rustc", output_file);
+        let mut ci = CompilationInfo::new("rustup", output_file);
+        ci.compiler.args.push(String::from("run"));
+        ci.compiler.args.push(program.language.version().to_owned());
+        ci.compiler.args.push(String::from("rustc"));
         ci.compiler.args.push(String::from("-C"));
         ci.compiler.args.push(String::from("opt-level=2"));
         ci.compiler.args.push(String::from("--cfg"));
