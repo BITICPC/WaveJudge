@@ -21,4 +21,3 @@ WORKDIR /app
 COPY --from=build /app/target/$profile/* ./
 
 ENTRYPOINT ["wave_judge"]
-

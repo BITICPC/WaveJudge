@@ -28,5 +28,5 @@ target_script_dir = target_script_dir.joinpath('scripts')
 if not target_script_dir.exists():
     target_script_dir.mkdir()
 
-run(f'cp -R ./config/* "{target_config_dir}"')
-run(f'cp -R ./scripts/* "{target_script_dir}"')
+run('cp -R ./config/* "{}"'.format(target_config_dir))
+run('cp -R ./scripts/* "{}"'.format(target_script_dir))

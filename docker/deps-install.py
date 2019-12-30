@@ -15,25 +15,25 @@ def run(*args):
     subprocess.run(args, check=True, shell=True)
 
 def apt_install(name):
-    run(f'apt install "{name}"')
+    run('apt install "{}"'.format(name))
 
 def wget(name):
-    run(f'wget "{name}"')
+    run('wget "{}"'.format(name))
 
 def tar_extract(name, z=False):
     if z:
-        run(f'tar -xzf "{name}"')
+        run('tar -xzf "{}"'.format(name))
     else:
-        run(f'tar -xf "{name}"')
+        run('tar -xf "{}"'.format(name))
 
 def link(name, target, symbolic=True):
     if symbolic:
-        run(f'ln -s "{target}" "{name}"')
+        run('ln -s "{}" "{}"'.format(target, name))
     else:
-        run(f'ln "{target}" "{name}"')
+        run('ln "{}" "{}"'.format(target, name))
 
 def move(src, dest):
-    run(f'mv "{src}" "{dest}"')
+    run('mv "{}" "{}"'.format(src, dest))
 
 args = get_args()
 if args.tuna == 'yes':
@@ -67,21 +67,21 @@ link('/usr/bin/clang++', '/usr/bin/clang++-8')
 
 # Install python distributions.s
 def install_python(version, build_jobs=4):
-    print(f'Downloading python {version} source code')
-    wget(f'https://www.python.org/ftp/python/{version}/Python-{version}.tar.xz')
-    tar_extract(f'Python-{version}.tar.xz')
-    os.remove(f'Python-{version}.tar.xz')
-    move(f'Python-{version}', f'{version}')
+    print('Downloading python {} source code'.format(version))
+    wget('https://www.python.org/ftp/python/{}/Python-{}.tar.xz'.format(version, version))
+    tar_extract('Python-{}.tar.xz'.format(version))
+    os.remove('Python-{}.tar.xz'.format(version))
+    move('Python-{}'.format(version), version)
 
-    os.chdir(f'{version}')
+    os.chdir(version)
 
-    print(f'Building python {version} from source')
+    print('Building python {} from source'.format(version))
     run('./configure')
-    run(f'make -j{build_jobs}')
+    run('make -j{}'.format(build_jobs))
 
     simp_version = '.'.join(version.split('.')[:2])
-    print(f'Installing python {version} to python{simp_version}')
-    link(f'/usr/bin/python{simp_version}', './python')
+    print('Installing python {} to python{}'.format(version, simp_version))
+    link('/usr/bin/python{}', './python'.format(simp_version))
 
     os.chdir('..')
 
@@ -120,8 +120,8 @@ def install_rust(*versions):
     run("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")
 
     for v in versions:
-        print(f'Installing rust toolchain version {v}')
-        run(f'rustup toolchain install {v}')
+        print('Installing rust toolchain version {}'.format(v))
+        run('rustup toolchain install {}'.format(v))
 
 install_rust('1.38', '1.39', '1.40')
 

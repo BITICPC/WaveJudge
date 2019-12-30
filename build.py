@@ -24,8 +24,8 @@ def cargo_build(release=False):
         run('cargo build')
 
 def subdir_build(subdir, out_dir):
-    os.chdir(f'./{subdir}')
-    run(f'./build.py -o "{out_dir}"')
+    os.chdir('./{}'.format(subdir))
+    run('./build.py -o "{}"'.format(out_dir))
     os.chdir('..')
 
 args = parse_args()
@@ -34,7 +34,7 @@ profile = args.profile
 release = profile == 'release'
 cargo_build(release=release)
 
-out_dir = pathlib.Path(f'./target/{profile}').resolve()
+out_dir = pathlib.Path('./target/{}'.format(profile)).resolve()
 subdirs = ['builtin-languages', 'driver']
 for subdir in subdirs:
     subdir_build(subdir, str(out_dir))

@@ -23,4 +23,4 @@ target_config_dir = target_config_dir.joinpath('config')
 if not target_config_dir.exists():
     target_config_dir.mkdir()
 
-run(f'cp -R ./config/* "{target_config_dir}"')
+run('cp -R ./config/* "{}"'.format(target_config_dir))
