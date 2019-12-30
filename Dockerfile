@@ -5,9 +5,9 @@ ARG tuna=yes
 WORKDIR /app
 # Copy all application related files and directories into the image.
 COPY ./ ./
-RUN ./docker/use-tuna.py --tuna $tuna && apt update
+RUN ./docker/use-tuna.py --tuna $tuna && apt-get --assume-yes update
 # Install necessary dependencies to build WaveJudge from source.
-RUN apt install openssl libseccomp2-dev
+RUN apt-get --assume-yes install openssl libseccomp2
 # And then build
 RUN ./build.py --profile $profile
 
