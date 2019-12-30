@@ -5,13 +5,8 @@ import subprocess
 
 # Install apt-transport-https to fetch packages from TUNA source. This package should be installed
 # from the official debian source.
-proc = subprocess.run(['apt', 'update'])
-if proc.returncode != 0:
-    sys.exit(proc.returncode)
-
-proc = subprocess.run(['apt', 'install', 'apt-transport-https'])
-if proc.returncode != 0:
-    sys.exit(proc.returncode)
+proc = subprocess.run(['apt', 'update'], check=True)
+proc = subprocess.run(['apt', 'install', 'apt-transport-https'], check=True)
 
 tuna_sources = [
     'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ stretch main contrib non-free',

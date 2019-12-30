@@ -11,38 +11,35 @@ def get_args():
         help='Use TUNA repository instead of the official package repository.')
     return parser.parse_args()
 
-def run(*args, check=True, shell=True):
-    proc = subprocess.run(*args, check=check, shell=shell)
-    if check and proc.returncode != 0:
-        print('command failed: {}: {}', args, proc.returncode)
-        sys.exit(proc.returncode)
-    return proc
+def run(*args):
+    subprocess.run(args, check=True, shell=True)
 
 def apt_install(name):
-    run(['apt', 'install', name])
+    run(f'apt install "{name}"')
 
 def wget(name):
-    run('wget', name)
+    run(f'wget "{name}"')
 
 def tar_extract(name, z=False):
-    run('tar', '-xzf' if z else '-xf', name)
+    if z:
+        run(f'tar -xzf "{name}"')
+    else:
+        run(f'tar -xf "{name}"')
 
 def link(name, target, symbolic=True):
-    args = ['ln']
     if symbolic:
-        args.append('-s')
-    args.append(target)
-    args.append(name)
-    run(*args)
+        run(f'ln -s "{target}" "{name}"')
+    else:
+        run(f'ln "{target}" "{name}"')
 
 def move(src, dest):
-    run(['mv', src, dest])
+    run(f'mv "{src}" "{dest}"')
 
 args = get_args()
 if args.tuna == 'yes':
     print('Use TUNA package repository')
     run('./scripts/use-tuna.py')
-run('apt', 'update')
+run('apt update')
 
 
 print('Installing wget utility')
@@ -80,7 +77,7 @@ def install_python(version, build_jobs=4):
 
     print(f'Building python {version} from source')
     run('./configure')
-    run('make', f'-j{build_jobs}')
+    run(f'make -j{build_jobs}')
 
     simp_version = '.'.join(version.split('.')[:2])
     print(f'Installing python {version} to python{simp_version}')
@@ -124,7 +121,7 @@ def install_rust(*versions):
 
     for v in versions:
         print(f'Installing rust toolchain version {v}')
-        run('rustup', 'toolchain', 'install', v)
+        run(f'rustup toolchain install {v}')
 
 install_rust('1.38', '1.39', '1.40')
 

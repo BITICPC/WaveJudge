@@ -13,8 +13,8 @@ def get_args():
         help='The output directory of the build.')
     return parser.parse_args()
 
-def run(*args, shell=True, check=True):
-    subprocess.run(*args, shell=shell=, check=check)
+def run(args):
+    subprocess.run(args, shell=True, check=True)
 
 args = get_args()
 
@@ -23,4 +23,4 @@ target_config_dir = target_config_dir.joinpath('config')
 if not target_config_dir.exists():
     target_config_dir.mkdir()
 
-run('cp', '-R', './config/*', str(target_config_dir))
+run(f'cp -R ./config/* "{target_config_dir}"')

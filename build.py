@@ -14,26 +14,27 @@ def parse_args():
 
     return parser.parse_args()
 
-def run(*args, shell=True, check=True):
-    subprocess.run(*args, shell=shell=, check=check)
+def run(args):
+    subprocess.run(args, shell=True, check=True)
 
 def cargo_build(release=False):
-    cargo_args = ['cargo', 'build']
     if release:
-        cargo_args.append('--release')
-    run(*cargo_args)
+        run('cargo build --release')
+    else:
+        run('cargo build')
 
 def subdir_build(subdir, out_dir):
     os.chdir(f'./{subdir}')
-    run(f'./{subdir}/build.py', '-o', out_dir)
+    run(f'./build.py -o "{out_dir}"')
     os.chdir('..')
 
 args = parse_args()
 
-release = args.profile == 'release'
+profile = args.profile
+release = profile == 'release'
 cargo_build(release=release)
 
-out_dir = pathlib.Path(f'./target/{profile}')
+out_dir = pathlib.Path(f'./target/{profile}').resolve()
 subdirs = ['builtin-languages', 'driver']
 for subdir in subdirs:
-    subdir_build(subdir, str(out_dir.absolute()))
+    subdir_build(subdir, str(out_dir))
