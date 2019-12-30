@@ -3,7 +3,7 @@ FROM rust:1.40-stretch as build
 ARG profile=release
 WORKDIR /app
 # Copy all application related files and directories into the image.
-COPY builtin-languages/ driver/ judge/ sandbox/ build.py Cargo.lock Cargo.toml ./
+COPY ./ ./
 # And then build.
 RUN ./build.py --profile $profile
 
