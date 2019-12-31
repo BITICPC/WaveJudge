@@ -94,7 +94,7 @@ os.chdir('..')
 
 # Install Java distributions.
 def install_java():
-    print(f'Downloading Java binary archive')
+    print('Downloading Java binary archive')
     wget('https://download.java.net/java/GA/jdk13.0.1/cec27d702aa74d5a8630c65ae61e4305/9/GPL/' +
         'openjdk-13.0.1_linux-x64_bin.tar.gz')
     tar_extract('openjdk-13.0.1_linux-x64_bin.tar.gz', z=True)

@@ -27,7 +27,7 @@ RUN apt-get --assume-yes update && apt-get --assume-yes install python3
 
 # Install all dependencies required by WaveJudge.
 COPY docker/ ./scripts/
-RUN ./scripts/deps-install.py --use-tuna $tuna
+RUN ./scripts/deps-install.py --tuna $tuna
 
 # Step 3: copy the application from `build` to this final image.
 WORKDIR /app
