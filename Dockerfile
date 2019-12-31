@@ -22,7 +22,10 @@ RUN ./build.py --profile $profile
 FROM debian:stretch-slim as runtime
 WORKDIR /deps
 
-# Use tuna source if necessary.
+# Install python3.
+RUN apt-get --assume-yes update && apt-get --assume-yes install python3
+
+# Install all dependencies required by WaveJudge.
 COPY docker/ ./scripts/
 RUN ./scripts/deps-install.py --use-tuna $tuna
 
