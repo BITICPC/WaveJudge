@@ -5,10 +5,17 @@ ARG tuna=yes
 WORKDIR /app
 # Copy all application related files and directories into the image.
 COPY ./ ./
+# Configure package source to TUNA.
 RUN ./docker/use-tuna.py --tuna $tuna && apt-get --assume-yes update
-# Install necessary dependencies to build WaveJudge from source.
-RUN apt-get --assume-yes install openssl libseccomp2
-# And then build
+# Install the build-essential meta package.
+RUN apt-get --assume-yes install build-essential
+# Build libseccomp and openssl
+WORKDIR /app/libseccomp
+RUN ./autogen.sh && ./configure && make && make install
+WORKDIR /app/openssl
+RUN ./config && make && make install
+# And then build WaveJudge itself.
+WORKDIR /app
 RUN ./build.py --profile $profile
 
 # Step 2: Build application runtime based on a fresh debian image
