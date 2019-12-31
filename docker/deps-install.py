@@ -5,12 +5,6 @@ import subprocess
 import sys
 import os
 
-def get_args():
-    parser = argparse.ArgumentParser(description='Install all required dependencies of WaveJudge')
-    parser.add_argument('--tuna', nargs='?', default='yes',
-        help='Use TUNA repository instead of the official package repository.')
-    return parser.parse_args()
-
 def run(*args):
     subprocess.run(args, check=True, shell=True)
 
@@ -35,13 +29,6 @@ def link(name, target, symbolic=True):
 def move(src, dest):
     run('mv "{}" "{}"'.format(src, dest))
 
-args = get_args()
-if args.tuna == 'yes':
-    print('Use TUNA package repository')
-    run('./scripts/use-tuna.py')
-run('apt update')
-
-
 print('Installing wget utility')
 apt_install('wget')
 
@@ -52,20 +39,16 @@ print('Installing make utility')
 apt_install('make')
 
 
-print('Installing gcc-8')
-apt_install('gcc-8')
-link('/usr/bin/gcc', '/usr/bin/gcc-8')
+print('Installing gcc')
+apt_install('gcc')
 
-print('Installing g++-8')
-apt_install('g++-8')
-link('/usr/bin/g++', '/usr/bin/g++-8')
+print('Installing g++s')
+apt_install('g++')
 
-print('Installing clang-8')
-apt_install('clang-8')
-link('/usr/bin/clang', '/usr/bin/clang-8')
-link('/usr/bin/clang++', '/usr/bin/clang++-8')
+print('Installing clang')
+apt_install('clang')
 
-# Install python distributions.s
+# Install python distributions.
 def install_python(version, build_jobs=4):
     print('Downloading python {} source code'.format(version))
     wget('https://www.python.org/ftp/python/{}/Python-{}.tar.xz'.format(version, version))
