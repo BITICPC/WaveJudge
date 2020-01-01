@@ -20,6 +20,9 @@ RUN ./autogen.sh && ./configure && make && make install
 # And then build WaveJudge itself.
 WORKDIR /app
 ARG profile=release
+# The following environment variable explicitly specify the certificate to use when updating
+# crates.io index during the build.
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 RUN ./build.py --profile $profile
 
 # Step 2: Build application runtime based on a fresh debian image
