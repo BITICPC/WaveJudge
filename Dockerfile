@@ -11,11 +11,15 @@ RUN ./docker/tuna.py
 # Install the build-essential meta package.
 RUN apt-get update && apt-get --assume-yes install build-essential
 
-# Build and install libseccomp from source.
+# Build and install openssl and libseccomp from source.
+WORKDIR /deps
+RUN git clone https://github.com/openssl/openssl.git
+WORKDIR /deps/openssl
+RUN git checkout OpenSSL_1_1_1-stable && ./config && make && make install
 WORKDIR /deps
 RUN git clone https://github.com/seccomp/libseccomp.git
 WORKDIR /deps/libseccomp
-RUN ./autogen.sh && ./configure && make && make install
+RUN git checkout release-2.4 && ./autogen.sh && ./configure && make && make install
 
 # And then build WaveJudge itself.
 WORKDIR /app
