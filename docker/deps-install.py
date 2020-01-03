@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env /usr/bin/python3.8
 
 import argparse
 import subprocess
@@ -42,38 +42,12 @@ apt_install('make')
 print('Installing gcc')
 apt_install('gcc')
 
-print('Installing g++s')
+print('Installing g++')
 apt_install('g++')
 
 print('Installing clang')
 apt_install('clang')
 
-# Install python distributions.
-def install_python(version, build_jobs=4):
-    print('Downloading python {} source code'.format(version))
-    wget('https://www.python.org/ftp/python/{}/Python-{}.tar.xz'.format(version, version))
-    tar_extract('Python-{}.tar.xz'.format(version))
-    os.remove('Python-{}.tar.xz'.format(version))
-    move('Python-{}'.format(version), version)
-
-    os.chdir(version)
-
-    print('Building python {} from source'.format(version))
-    run('./configure')
-    run('make -j{}'.format(build_jobs))
-
-    simp_version = '.'.join(version.split('.')[:2])
-    print('Installing python {} to python{}'.format(version, simp_version))
-    link('/usr/bin/python{}', './python'.format(simp_version))
-
-    os.chdir('..')
-
-os.mkdir('python')
-os.chdir('python')
-install_python('3.6.10')
-install_python('3.7.6')
-install_python('3.8.1')
-os.chdir('..')
 
 # Install Java distributions.
 def install_java():
@@ -96,6 +70,7 @@ os.mkdir('java')
 os.chdir('java')
 install_java()
 os.chdir('..')
+
 
 # Install rust distributions.
 def install_rust(*versions):
