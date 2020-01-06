@@ -99,7 +99,7 @@ impl LanguageProvider for RustLanguageProvider {
 }
 
 /// Name of the file containing Rust language configurations.
-const RUST_CONFIG_FILE_NAME: &'static str = "rust-config.yaml";
+const RUST_CONFIG_FILE_NAME: &'static str = "config/rust-config.yaml";
 
 /// Initialize language providers for the Rust programming language.
 pub fn init_rust_providers(lang: &mut LanguageProviderRegister) -> Result<(), InitLanguageError> {

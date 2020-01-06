@@ -189,7 +189,7 @@ impl LanguageProvider for CPPLanguageProvider {
 }
 
 /// Name of the file containing CXX language configurations.
-const CXX_LANG_CONFIG_FILE_NAME: &'static str = "cpp-config.yaml";
+const CXX_LANG_CONFIG_FILE_NAME: &'static str = "config/cpp-config.yaml";
 
 pub fn init_cxx_providers(lang: &mut LanguageProviderRegister) -> Result<(), InitLanguageError> {
     init_metadata();

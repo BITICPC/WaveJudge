@@ -130,7 +130,7 @@ impl LanguageProvider for JavaLanguageProvider {
 }
 
 /// Name of the Java language configuration file.
-const JAVA_LANG_CONFIG_FILE_NAME: &'static str = "java-config.yaml";
+const JAVA_LANG_CONFIG_FILE_NAME: &'static str = "config/java-config.yaml";
 
 /// Initialize java language provider.
 pub fn init_java_providers(lang: &mut LanguageProviderRegister) -> Result<(), InitLanguageError> {

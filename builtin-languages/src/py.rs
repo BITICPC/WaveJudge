@@ -88,7 +88,7 @@ impl LanguageProvider for PythonLanguageProvider {
 }
 
 /// Name of the file containing python language provider configurations.
-const PYTHON_LANG_CONFIG_FILE_NAME: &'static str = "py-config.yaml";
+const PYTHON_LANG_CONFIG_FILE_NAME: &'static str = "config/py-config.yaml";
 
 /// Initialize python language provider and related facilities.
 pub fn init_py_providers(lang: &mut LanguageProviderRegister) -> Result<(), InitLanguageError> {
