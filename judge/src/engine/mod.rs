@@ -259,7 +259,12 @@ impl JudgeEngine {
 
         // Create a temporary directory for this judge task.
         let judge_dir = match self.config.judge_dir {
-            Some(ref parent) => tempfile::tempdir_in(parent)?,
+            Some(ref parent) => {
+                // Make sure that judge_dir exists.
+                std::fs::create_dir_all(parent)?;
+                // And create a temporary directory under judge_dir.
+                tempfile::tempdir_in(parent)?
+            },
             None => tempfile::tempdir()?
         };
         // And set the judge directory to the judgee's process builder.

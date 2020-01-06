@@ -448,14 +448,18 @@ pub struct ArchiveStore {
 
 impl ArchiveStore {
     /// Create a new `ArchiveStore` instance.
-    pub(super) fn new<P>(dir: &P, rest: Arc<RestfulClient>) -> ArchiveStore
-        where P: ?Sized + AsRef<Path> {
-        let dir = dir.as_ref();
-        ArchiveStore {
+    pub(super) fn new<P>(dir: P, rest: Arc<RestfulClient>) -> Result<ArchiveStore>
+        where P: Into<PathBuf> {
+        let store = ArchiveStore {
             lock: KeyLock::new(),
-            root_dir: dir.to_owned(),
+            root_dir: dir.into(),
             rest
-        }
+        };
+
+        // Create dir if it does not exist.
+        std::fs::create_dir_all(&store.root_dir)?;
+
+        Ok(store)
     }
 
     /// Get the directory containing the content of the archive with the specified ID.

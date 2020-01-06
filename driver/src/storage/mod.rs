@@ -47,7 +47,7 @@ impl AppStorageFacade {
         let problem_rest = rest.clone();
 
         Ok(AppStorageFacade {
-            archives: ArchiveStore::new(&config.storage.archive_dir, archive_rest),
+            archives: ArchiveStore::new(&config.storage.archive_dir, archive_rest)?,
             problems: ProblemStore::new(
                 problem_db, problem_rest, fork_server, &config.storage.jury_dir)?,
         })

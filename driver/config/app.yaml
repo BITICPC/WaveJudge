@@ -24,7 +24,7 @@ engine:
     # The directory used for judging.
     judge_dir: "/judge/dir"
 
-    # Paths to the dynamic linkling libraries containing language providers to be loaded
+    # Paths to the dynamic linking libraries containing language providers to be loaded
     # dynamically.
     language_dylibs: ["language_dylib_1", "language_dylib_2"]
 

@@ -77,7 +77,7 @@ impl AppContextBuilder {
         &*self.config.as_ref().expect("Application configuration has not been initialized yet.")
     }
 
-    /// Initialize fork sevrer.
+    /// Initialize fork server.
     fn init_fork_server(&mut self) -> Result<()> {
         let judge_config = &self.get_app_config().engine;
         let client = crate::forkserver::start_fork_server(judge_config)?;
@@ -180,7 +180,7 @@ fn init_log<P>(log_config_file: P) -> Result<()>
 }
 
 /// Initialize the application and returns a `AppContext` object.
-pub(crate) fn init<'a>(args: ArgMatches<'a>) -> Result<AppContext> {
+pub(crate) fn init(args: ArgMatches<'_>) -> Result<AppContext> {
     let log_config_file_path = args.value_of("log_config_file")
         .expect("failed to get path to log file");
     init_log(log_config_file_path)?;

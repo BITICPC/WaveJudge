@@ -270,6 +270,10 @@ impl ProblemStore {
             jury_dir: jury_dir.into()
         };
         store.init_db()?;
+
+        // Create jury_dir if it does not exist.
+        std::fs::create_dir_all(&store.jury_dir)?;
+
         Ok(store)
     }
 
@@ -400,7 +404,7 @@ impl ProblemStore {
                     let jury_exec_ext = jury_exec_temp_path.extension();
 
                     // The file name of the jury executable should be {problemId}.{extension} under the
-                    // jury exectable directory. Build the jury executable's file name now.
+                    // jury executable directory. Build the jury executable's file name now.
                     let mut jury_exec_path = self.jury_dir.clone();
                     jury_exec_path.push(id.to_string());
                     if jury_exec_ext.is_some() {
